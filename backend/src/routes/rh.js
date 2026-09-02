@@ -7,6 +7,7 @@ import { logInfo, logError } from '../logger.js';
 import {
   ensureHistoryTables, recordEvent, openPeriod, closePeriod, getOpenPeriod, trackEmployeeChanges,
 } from '../lib/rh-history.js';
+import { parseWorkSchedule } from '../services/point-calculator.js';
 
 
 
@@ -1378,6 +1379,80 @@ router.get('/punch-divergences', async (req, res) => {
         description: `${r.count} registro(s) fora do PDV`,
         severity: 'low',
       });
+    }
+
+    // 4. Atrasos (primeira batida do dia depois do horário previsto na jornada)
+    try {
+      let empSchedules;
+      try {
+        empSchedules = await query(`
+          SELECT e.id, e.full_name, e.work_schedule, e.work_schedule_id,
+                 ws.schedule_json, ws.kind AS ws_kind, ws.cycle_pattern, ws.cycle_start_date
+          FROM employees e
+          LEFT JOIN work_schedules ws ON ws.id = e.work_schedule_id
+          WHERE e.organization_id = $1 AND e.status = 'ativo'
+        `, [orgId]);
+      } catch (_) {
+        empSchedules = await query(`
+          SELECT e.id, e.full_name, e.work_schedule, NULL::uuid AS work_schedule_id,
+                 NULL::jsonb AS schedule_json, NULL::text AS ws_kind, NULL::text AS cycle_pattern, NULL::date AS cycle_start_date
+          FROM employees e WHERE e.organization_id = $1 AND e.status = 'ativo'
+        `, [orgId]);
+      }
+
+      const firstPunches = await query(`
+        SELECT tp.employee_id,
+               (tp.punched_at AT TIME ZONE 'America/Sao_Paulo')::date AS punch_date,
+               to_char(MIN(tp.punched_at) AT TIME ZONE 'America/Sao_Paulo', 'HH24:MI') AS first_time
+        FROM time_punches tp
+        WHERE tp.organization_id = $1 AND (tp.punched_at AT TIME ZONE 'America/Sao_Paulo')::date BETWEEN $2::date AND $3::date
+        GROUP BY tp.employee_id, punch_date
+      `, [orgId, sd, ed]);
+
+      const toleranceRes = await query(
+        `SELECT late_tolerance_minutes FROM time_rules WHERE organization_id = $1 AND employee_id IS NULL ORDER BY employee_id NULLS LAST LIMIT 1`,
+        [orgId]
+      ).catch(() => ({ rows: [] }));
+      const tolerance = toleranceRes.rows[0]?.late_tolerance_minutes ?? 10;
+
+      const empById = new Map(empSchedules.rows.map(e => [e.id, e]));
+      const toMin = (hhmm) => {
+        const m = String(hhmm || '').match(/^(\d{1,2}):(\d{2})/);
+        return m ? parseInt(m[1], 10) * 60 + parseInt(m[2], 10) : null;
+      };
+
+      for (const p of firstPunches.rows) {
+        const emp = empById.get(p.employee_id);
+        if (!emp) continue;
+        const dateStr = new Date(p.punch_date).toISOString().slice(0, 10);
+        const dow = new Date(dateStr + 'T12:00:00').getDay();
+        const scheduleData = emp.work_schedule_id ? {
+          schedule_json: emp.schedule_json,
+          kind: emp.ws_kind,
+          cycle_pattern: emp.cycle_pattern,
+          cycle_start_date: emp.cycle_start_date ? new Date(emp.cycle_start_date).toISOString().slice(0, 10) : null,
+        } : emp.work_schedule;
+        const schedule = parseWorkSchedule(scheduleData, dow, dateStr);
+        if (!schedule.hasSchedule || schedule.isDayOff || !schedule.entries.length) continue;
+
+        const expectedMin = schedule.entries[0].startMin;
+        const actualMin = toMin(p.first_time);
+        if (expectedMin == null || actualMin == null) continue;
+
+        const lateBy = actualMin - expectedMin;
+        if (lateBy > tolerance) {
+          divergences.push({
+            employee_id: p.employee_id,
+            employee_name: emp.full_name,
+            date: dateStr,
+            type: 'atraso',
+            description: `Atraso de ${lateBy}min (previsto ${schedule.entries[0].start}, registrado ${p.first_time})`,
+            severity: 'medium',
+          });
+        }
+      }
+    } catch (err) {
+      logError('rh.punch_divergences.atraso', err);
     }
 
     res.json(divergences);

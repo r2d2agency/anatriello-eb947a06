@@ -23,6 +23,7 @@ import {
 import { useCompanies } from '@/hooks/use-companies';
 import { WorkSchedulesTab } from '@/components/rh/WorkSchedulesTab';
 import { RegistrosPontoTab } from '@/components/rh/RegistrosPontoTab';
+import { GestaoPontoTab } from '@/components/rh/GestaoPontoTab';
 
 import { format, startOfMonth, endOfMonth } from 'date-fns';
 import { Calendar, Clock, TrendingUp, TrendingDown, CheckCircle2, XCircle, Pencil, History, Trash2, Plus, Download, FileText, AlertCircle } from 'lucide-react';
@@ -1060,8 +1061,9 @@ export default function RHPontoV2() {
           <p className="text-muted-foreground text-sm">Cartão ponto, banco de horas 1:1, feriados, ajustes, relatórios, fechamento e compliance MTE.</p>
         </div>
 
-        <Tabs defaultValue="registros">
+        <Tabs defaultValue="gestao">
           <TabsList className="flex-wrap h-auto">
+            <TabsTrigger value="gestao">Gestão de Ponto</TabsTrigger>
             <TabsTrigger value="registros">Registros</TabsTrigger>
             <TabsTrigger value="cartao">Cartão Ponto</TabsTrigger>
             <TabsTrigger value="banco">Banco de Horas</TabsTrigger>
@@ -1072,6 +1074,7 @@ export default function RHPontoV2() {
             <TabsTrigger value="fechamento">Fechamento</TabsTrigger>
             <TabsTrigger value="compliance">Compliance</TabsTrigger>
           </TabsList>
+          <TabsContent value="gestao" className="mt-4"><GestaoPontoTab /></TabsContent>
           <TabsContent value="registros" className="mt-4"><RegistrosPontoTab /></TabsContent>
           <TabsContent value="cartao" className="mt-4"><CartaoPontoTab /></TabsContent>
           <TabsContent value="banco" className="mt-4"><BancoHorasTab /></TabsContent>
