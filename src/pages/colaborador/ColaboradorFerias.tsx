@@ -11,6 +11,12 @@ import { format, differenceInDays, addYears } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 
+function safeDate(value: any): string {
+  if (!value) return "—";
+  const d = new Date(String(value).replace(" ", "T"));
+  return d && !Number.isNaN(d.getTime()) ? format(d, "dd/MM/yyyy") : "—";
+}
+
 export default function ColaboradorFerias() {
   const { data: vacations, isLoading } = useColabVacations();
   const { data: meFull } = useColabMeFull();
