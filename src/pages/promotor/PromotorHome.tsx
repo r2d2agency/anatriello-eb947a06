@@ -386,6 +386,12 @@ export default function PromotorHome() {
     entrada: '🟢 Entrada', saida_intervalo: '🟡 Saída Intervalo', retorno_intervalo: '🔵 Retorno Intervalo', saida: '🔴 Saída', extraordinaria: '⚪ Extra'
   };
 
+  const safeTime = (value: any): string => {
+    if (!value) return '—';
+    const d = new Date(String(value).replace(' ', 'T'));
+    return d && !Number.isNaN(d.getTime()) ? format(d, 'HH:mm') : '—';
+  };
+
   const canPunch = scheduleStatus?.is_within_schedule || scheduleStatus?.has_overtime_approval;
   const isOutsideSchedule = scheduleStatus && !scheduleStatus.is_within_schedule;
 
