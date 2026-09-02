@@ -1,7 +1,16 @@
 #!/usr/bin/env node
-// Bump version A.B.C.D — incrementa o último segmento; ao chegar em 100, rola para o próximo.
+// Gera a versão do build a partir do horário atual (epoch, em segundos).
 // Uso: node scripts/bump-version.mjs
-import { readFileSync, writeFileSync } from "node:fs";
+//
+// Por que não incrementar um contador salvo em public/version.json?
+// O Docker build é efêmero — o bump acontecia dentro do container, nunca era
+// commitado de volta pro git, então TODO build partia do mesmo valor commitado
+// e chegava sempre no mesmo próximo número. Resultado: toda imagem nova gerava
+// a mesma versão, o banner de atualização nunca via nada "mais novo", e os
+// usuários ficavam presos no bundle antigo em cache mesmo com deploys novos no ar.
+// Epoch sempre cresce, então cada build tem uma versão maior que a anterior sem
+// precisar persistir estado nenhum.
+import { writeFileSync, readFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -10,24 +19,8 @@ const root = resolve(__dirname, "..");
 const jsonPath = resolve(root, "public/version.json");
 const tsPath = resolve(root, "src/version.ts");
 
-const ROLL = 100;
-
-function bump(v) {
-  const p = v.split(".").map((n) => parseInt(n, 10));
-  while (p.length < 4) p.push(0);
-  p[3] += 1;
-  for (let i = 3; i > 0; i--) {
-    if (p[i] >= ROLL) {
-      p[i] = 0;
-      p[i - 1] += 1;
-    }
-  }
-  return p.join(".");
-}
-
-const current = JSON.parse(readFileSync(jsonPath, "utf8"));
-const next = bump(current.version || "1.0.0.0");
 const timestamp = Date.now();
+const next = String(Math.floor(timestamp / 1000));
 
 writeFileSync(jsonPath, JSON.stringify({ version: next, timestamp }, null, 2) + "\n");
 
@@ -37,4 +30,4 @@ const ts = readFileSync(tsPath, "utf8").replace(
 );
 writeFileSync(tsPath, ts);
 
-console.log(`Version bumped: ${current.version} → ${next}`);
+console.log(`Version set: ${next}`);
