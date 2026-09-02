@@ -24,6 +24,16 @@ function initials(name?: string) {
   return name.split(' ').filter(Boolean).slice(0, 2).map(p => p[0]).join('').toUpperCase();
 }
 
+function safeParseISO(d: string): Date | null {
+  if (!d) return null;
+  try {
+    const parsed = parseISO(d);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  } catch {
+    return null;
+  }
+}
+
 export function RegistrosPontoTab() {
   const { companies = [] } = useCompanies();
   const [companyId, setCompanyId] = useState<string>('all');
@@ -187,12 +197,13 @@ export function RegistrosPontoTab() {
                     const info = selected.days[d];
                     const times = info?.times || [];
                     const minutes = info?.minutes || 0;
-                    const isWeekend = [0, 6].includes(parseISO(d).getDay());
+                    const dayDate = safeParseISO(d);
+                    const isWeekend = dayDate ? [0, 6].includes(dayDate.getDay()) : false;
                     return (
                       <TableRow key={d} className={isWeekend ? 'bg-muted/30' : ''}>
                         <TableCell className="font-mono text-sm">
-                          <div>{format(parseISO(d), 'dd/MM')}</div>
-                          <div className="text-xs text-muted-foreground capitalize">{format(parseISO(d), 'EEE', { locale: ptBR })}</div>
+                          <div>{dayDate ? format(dayDate, 'dd/MM') : '—'}</div>
+                          <div className="text-xs text-muted-foreground capitalize">{dayDate ? format(dayDate, 'EEE', { locale: ptBR }) : ''}</div>
                         </TableCell>
                         <TableCell>
                           {times.length === 0 ? (
@@ -227,9 +238,10 @@ export function RegistrosPontoTab() {
             <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2">
               {days.map(d => {
                 const t = dayTotals[d];
+                const dayDate = safeParseISO(d);
                 return (
                   <div key={d} className="rounded-lg border p-2 text-center">
-                    <div className="text-xs text-muted-foreground capitalize">{format(parseISO(d), "dd/MM · EEE", { locale: ptBR })}</div>
+                    <div className="text-xs text-muted-foreground capitalize">{dayDate ? format(dayDate, "dd/MM · EEE", { locale: ptBR }) : '—'}</div>
                     <div className="font-mono font-semibold text-sm mt-1">{t ? fmtMinutes(t.minutes) : '—'}</div>
                     <div className="text-[10px] text-muted-foreground">{t ? `${t.count} colab.` : '·'}</div>
                   </div>
