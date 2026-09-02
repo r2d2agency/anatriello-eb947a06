@@ -39,6 +39,17 @@ const STATUS_COLORS: Record<string, string> = {
 
 const WEEKDAYS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 
+const safeDate = (v: any): Date | null => {
+  if (!v) return null;
+  const d = new Date(typeof v === 'string' && !v.includes('T') ? v + 'T12:00:00' : v);
+  return d && !Number.isNaN(d.getTime()) ? d : null;
+};
+
+const safeFmt = (v: any, fmt: string, fallback = '—'): string => {
+  const d = safeDate(v);
+  return d ? format(d, fmt) : fallback;
+};
+
 function fmtMin(min?: number | null) {
   if (min == null) return '--:--';
   const sign = min < 0 ? '-' : (min > 0 ? '+' : '');
@@ -155,7 +166,7 @@ function CartaoPontoTab() {
                     return (
                       <TableRow key={d.date} className={isWeekend ? 'bg-muted/30' : d.is_holiday ? 'bg-purple-500/5' : ''}>
                         <TableCell className="font-mono text-xs whitespace-nowrap">
-                          {format(new Date(d.date + 'T12:00:00'), 'dd/MM')} - {WEEKDAYS[d.dow]}
+                          {safeFmt(d.date, 'dd/MM')} - {WEEKDAYS[d.dow]}
                         </TableCell>
                         <TableCell className="font-mono">{d.entry1 || '--'}</TableCell>
                         <TableCell className="font-mono">{d.exit1 || '--'}</TableCell>
@@ -240,7 +251,7 @@ function EditDayDialog({ employeeId, day, onClose }: any) {
   return (
     <Dialog open onOpenChange={onClose}>
       <DialogContent>
-        <DialogHeader><DialogTitle>Editar Batidas — {format(new Date(day.date + 'T12:00:00'), 'dd/MM/yyyy')}</DialogTitle></DialogHeader>
+        <DialogHeader><DialogTitle>Editar Batidas — {safeFmt(day.date, 'dd/MM/yyyy')}</DialogTitle></DialogHeader>
         <div className="space-y-3">
           <div className="grid grid-cols-2 gap-2">
             {times.map((t, i) => (
@@ -271,12 +282,12 @@ function AuditDialog({ employeeId, date, onClose }: any) {
   return (
     <Dialog open onOpenChange={onClose}>
       <DialogContent className="max-w-2xl">
-        <DialogHeader><DialogTitle>Histórico de edições — {format(new Date(date + 'T12:00:00'), 'dd/MM/yyyy')}</DialogTitle></DialogHeader>
+        <DialogHeader><DialogTitle>Histórico de edições — {safeFmt(date, 'dd/MM/yyyy')}</DialogTitle></DialogHeader>
         <div className="space-y-2 max-h-96 overflow-y-auto">
           {data.length === 0 && <p className="text-muted-foreground text-sm">Nenhuma edição registrada.</p>}
           {data.map((a: any) => (
             <div key={a.id} className="border rounded p-3 text-sm">
-              <div className="font-medium">{a.editor_name || 'Sistema'} — {format(new Date(a.edited_at), 'dd/MM/yyyy HH:mm')}</div>
+              <div className="font-medium">{a.editor_name || 'Sistema'} — {safeFmt(a.edited_at, 'dd/MM/yyyy HH:mm')}</div>
               <div className="text-xs text-muted-foreground">Ação: {a.action}</div>
               {a.old_value && <div className="text-xs">De: <span className="font-mono">{a.old_value}</span></div>}
               {a.new_value && <div className="text-xs">Para: <span className="font-mono">{a.new_value}</span></div>}
@@ -349,7 +360,7 @@ function BancoHorasTab() {
                 <TableBody>
                   {entries.map((e: any) => (
                     <TableRow key={e.id}>
-                      <TableCell>{format(new Date(e.entry_date), 'dd/MM/yyyy')}</TableCell>
+                      <TableCell>{safeFmt(e.entry_date, 'dd/MM/yyyy')}</TableCell>
                       <TableCell><Badge variant={e.kind === 'credit' ? 'default' : 'destructive'}>{e.kind}</Badge></TableCell>
                       <TableCell><Badge variant="outline">{e.source}</Badge></TableCell>
                       <TableCell className="text-sm">{e.description}</TableCell>
@@ -475,7 +486,7 @@ function FeriadosTab() {
               <TableBody>
                 {holidays.map((h: any) => (
                   <TableRow key={h.id}>
-                    <TableCell>{format(new Date(h.holiday_date), 'dd/MM/yyyy')}</TableCell>
+                    <TableCell>{safeFmt(h.holiday_date, 'dd/MM/yyyy')}</TableCell>
                     <TableCell>{h.description}</TableCell>
                     <TableCell><Badge variant="outline">{h.scope}</Badge></TableCell>
                     <TableCell className="text-right">
@@ -534,7 +545,7 @@ function SolicitacoesTab() {
                   {r.company_name && <Badge variant="outline">{r.company_name}</Badge>}
                   <Badge className={STATUS_COLORS[r.status === 'approved' ? 'normal' : r.status === 'rejected' ? 'falta' : 'extra']}>{r.status}</Badge>
                 </div>
-                <div className="text-sm">Data: <span className="font-mono">{format(new Date(r.punch_date), 'dd/MM/yyyy')}</span></div>
+                <div className="text-sm">Data: <span className="font-mono">{safeFmt(r.punch_date, 'dd/MM/yyyy')}</span></div>
                 {r.requested_times && <div className="text-sm">Horários: <span className="font-mono">{r.requested_times}</span></div>}
                 <div className="text-sm text-muted-foreground">{r.justification}</div>
                 {r.attachment_url && <a href={r.attachment_url} target="_blank" rel="noreferrer" className="text-xs text-primary underline">Ver anexo</a>}
@@ -555,7 +566,7 @@ function SolicitacoesTab() {
           <DialogContent>
             <DialogHeader><DialogTitle>Revisar solicitação — {reviewing.employee_name}</DialogTitle></DialogHeader>
             <div className="space-y-3 text-sm">
-              <div>Data: <span className="font-mono">{format(new Date(reviewing.punch_date), 'dd/MM/yyyy')}</span></div>
+              <div>Data: <span className="font-mono">{safeFmt(reviewing.punch_date, 'dd/MM/yyyy')}</span></div>
               {reviewing.requested_times && <div>Horários solicitados: <span className="font-mono font-semibold">{reviewing.requested_times}</span></div>}
               <div className="p-3 bg-muted rounded">{reviewing.justification}</div>
               <div>
@@ -747,7 +758,7 @@ function RelatoriosTab() {
                     )}
                     {absLates?.items?.map((it: any, i: number) => (
                       <TableRow key={`${it.employee_id}-${it.date}-${i}`}>
-                        <TableCell className="tabular-nums">{format(new Date(it.date + 'T00:00:00'), 'dd/MM/yyyy')}</TableCell>
+                        <TableCell className="tabular-nums">{safeFmt(it.date, 'dd/MM/yyyy')}</TableCell>
                         <TableCell className="font-medium">{it.full_name}</TableCell>
                         <TableCell>
                           <Badge className={STATUS_COLORS[it.status] || ''}>
@@ -800,7 +811,7 @@ function RelatoriosTab() {
                             running += e.minutes;
                             return (
                               <TableRow key={e.id}>
-                                <TableCell className="tabular-nums">{format(new Date(e.entry_date + 'T00:00:00'), 'dd/MM/yyyy')}</TableCell>
+                                <TableCell className="tabular-nums">{safeFmt(e.entry_date, 'dd/MM/yyyy')}</TableCell>
                                 <TableCell><Badge variant={e.kind === 'credit' ? 'default' : 'destructive'}>{e.kind === 'credit' ? 'Crédito' : 'Débito'}</Badge></TableCell>
                                 <TableCell><Badge variant="outline">{e.source}</Badge></TableCell>
                                 <TableCell className="max-w-xs truncate">{e.description || '-'}</TableCell>
@@ -898,9 +909,9 @@ function FechamentoTab() {
               <TableBody>
                 {closings.map((c: any) => (
                   <TableRow key={c.id}>
-                    <TableCell className="font-medium">{format(new Date(c.period_start), 'dd/MM/yyyy')} – {format(new Date(c.period_end), 'dd/MM/yyyy')}</TableCell>
+                    <TableCell className="font-medium">{safeFmt(c.period_start, 'dd/MM/yyyy')} – {safeFmt(c.period_end, 'dd/MM/yyyy')}</TableCell>
                     <TableCell>{c.company_name || <span className="text-muted-foreground">Todas</span>}</TableCell>
-                    <TableCell>{format(new Date(c.closed_at), 'dd/MM/yyyy HH:mm')}</TableCell>
+                    <TableCell>{safeFmt(c.closed_at, 'dd/MM/yyyy HH:mm')}</TableCell>
                     <TableCell>{c.closed_by_name || '—'}</TableCell>
                     <TableCell className="max-w-xs truncate">{c.notes || '—'}</TableCell>
                     <TableCell className="text-right">
