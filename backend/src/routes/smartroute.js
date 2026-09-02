@@ -1,7 +1,9 @@
 // SmartRoute AI - Admin routes
 import express from 'express';
 import bcrypt from 'bcryptjs';
-import { query } from '../db.js';
+import multer from 'multer';
+import pdfParse from 'pdf-parse';
+import { query, pool } from '../db.js';
 import { authenticate } from '../middleware/auth.js';
 import { logError } from '../logger.js';
 
@@ -196,6 +198,14 @@ export async function ensureSmartRouteTables() {
     ALTER TABLE smartroute_pdvs ADD COLUMN IF NOT EXISTS category TEXT;
     ALTER TABLE smartroute_pdvs ADD COLUMN IF NOT EXISTS region TEXT;
     ALTER TABLE smartroute_pdvs ADD COLUMN IF NOT EXISTS contacts JSONB DEFAULT '[]'::jsonb;
+
+    -- Código do cliente no ERP externo (Mega Online etc), usado na importação de romaneios
+    ALTER TABLE smartroute_pdvs ADD COLUMN IF NOT EXISTS erp_code TEXT;
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_sr_pdvs_erp_code ON smartroute_pdvs(organization_id, erp_code) WHERE erp_code IS NOT NULL;
+
+    -- Número do romaneio de origem, para evitar reimportação duplicada
+    ALTER TABLE smartroute_routes ADD COLUMN IF NOT EXISTS romaneio_number TEXT;
+    CREATE INDEX IF NOT EXISTS idx_sr_routes_romaneio ON smartroute_routes(organization_id, romaneio_number) WHERE romaneio_number IS NOT NULL;
 
 
     -- === Fluxo Inteligente da Operação (Onda 1) ===
@@ -2515,6 +2525,279 @@ export async function runCatchupOptimizer() {
   else console.log('🔁 [SmartRoute IA] Catch-up no startup: nada pendente');
   return { ok, err, total };
 }
+
+// =====================================================================
+// IMPORTAÇÃO DE ROMANEIO (PDF do Mega Online Software) → Pedidos + Rota
+// =====================================================================
+function parseBRNumber(s) {
+  if (!s) return 0;
+  const n = parseFloat(String(s).trim().replace(/\./g, '').replace(',', '.'));
+  return Number.isFinite(n) ? n : 0;
+}
+
+function brDateToISO(s) {
+  const m = String(s || '').match(/(\d{2})\/(\d{2})\/(\d{4})/);
+  if (!m) return null;
+  return `${m[3]}-${m[2]}-${m[1]}`;
+}
+
+function parseRomaneioText(rawText) {
+  const text = String(rawText || '').replace(/\r/g, '');
+
+  const numTimeMatch = text.match(/(\d{4,10})\s+(\d{2}:\d{2}:\d{2})/);
+  const headerDateMatch = text.match(/ROMANEIO[^\n]*Data:\s*(\d{2}\/\d{2}\/\d{4})/i);
+  const entregadorMatch = text.match(/Entregador:\s*([^\n]+)/i);
+  const placaMatch = text.match(/Placa:\s*([^\n]+)/i);
+
+  const romaneio_number = numTimeMatch ? numTimeMatch[1] : null;
+  const romaneio_time = numTimeMatch ? numTimeMatch[2] : null;
+  const romaneio_date = headerDateMatch ? brDateToISO(headerDateMatch[1]) : null;
+  const deliverer_name = entregadorMatch ? entregadorMatch[1].trim() : null;
+  const plate = placaMatch ? placaMatch[1].trim().replace(/\s+/g, '') : null;
+
+  const stops = [];
+  const warnings = [];
+
+  const stopRe = /(\d{1,3})\s+(\d{5,9})\s*Venda\s*N[ºo]\s*\n\s*Cliente:\s*(\d+)\s*-\s*(.+?)\s*\n([\s\S]*?)SubTotal\s*=>\s*([\d.,]+)\s+([\d.,]+)/g;
+  let match;
+  while ((match = stopRe.exec(text))) {
+    const [, seqRaw, vendaNumber, clientCode, clientNameRaw, body, pesoRaw, valorRaw] = match;
+    const clientName = clientNameRaw.trim();
+    const bodyLines = body.split('\n').map((l) => l.trim()).filter(Boolean);
+
+    const fantasiaMatch = body.match(/Fantasia:\s*([^\n]+)/i);
+    const dataVendedorMatch = body.match(/Data:\s*(\d{2}\/\d{2}\/\d{4})\s*Vendedor:\s*([^\n]+)/i);
+    const cityStateMatch = body.match(/\/\s*(.+?)\s*\/\s*([A-Z]{2})\s*$/m);
+
+    const phones = [];
+    for (const line of bodyLines) {
+      if (/^\d{8,13}$/.test(line)) phones.push(line);
+      if (phones.length >= 2) break;
+    }
+
+    const addressLines = bodyLines.filter((l) =>
+      !/^Fone:|^Cel\.:|^Data:|^Fantasia:|^Produto\b|^PRD\S+-|^SubTotal/i.test(l) &&
+      !/^\d{8,13}$/.test(l)
+    );
+
+    const products = [];
+    const prodRe = /^(PRD\S+-.+?)\s+(\d+)\s+([\d.,]+)\s+([\d.,]+)\s+(FD|UN)\s*$/;
+    for (const line of bodyLines) {
+      const pm = line.match(prodRe);
+      if (pm) {
+        products.push({
+          description: pm[1].trim(),
+          qty: parseInt(pm[2], 10),
+          weight: parseBRNumber(pm[3]),
+          total_value: parseBRNumber(pm[4]),
+          unit: pm[5],
+        });
+      }
+    }
+
+    const stop = {
+      seq: parseInt(seqRaw, 10),
+      venda_number: vendaNumber,
+      client_code: clientCode,
+      client_name: clientName,
+      fantasy_name: fantasiaMatch ? fantasiaMatch[1].trim() : null,
+      delivery_date: dataVendedorMatch ? brDateToISO(dataVendedorMatch[1]) : romaneio_date,
+      salesperson: dataVendedorMatch ? dataVendedorMatch[2].trim() : null,
+      phone: phones[0] || null,
+      phone2: phones[1] || null,
+      address_raw: addressLines.join(', '),
+      city: cityStateMatch ? cityStateMatch[1].trim() : null,
+      state: cityStateMatch ? cityStateMatch[2].trim() : null,
+      products,
+      weight_total: parseBRNumber(pesoRaw),
+      value_total: parseBRNumber(valorRaw),
+    };
+
+    if (!stop.value_total || !products.length) {
+      warnings.push(`Parada Seq ${stop.seq} (cliente ${stop.client_code}): dados possivelmente incompletos, revise antes de importar.`);
+    }
+    stops.push(stop);
+  }
+
+  if (!stops.length) {
+    warnings.push('Nenhuma parada foi reconhecida no PDF. O layout pode ser diferente do esperado — revise manualmente.');
+  }
+
+  return { romaneio_number, romaneio_date, romaneio_time, deliverer_name, plate, stops, warnings };
+}
+
+const romaneioUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 20 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype === 'application/pdf') cb(null, true);
+    else cb(new Error('Envie um arquivo PDF'));
+  },
+});
+
+// Preview: faz o parse do PDF e sugere vínculos (PDV, motorista, veículo) sem gravar nada
+router.post('/romaneio/parse', romaneioUpload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'Nenhum arquivo enviado' });
+    const pdfData = await pdfParse(req.file.buffer);
+    const parsed = parseRomaneioText(pdfData.text);
+    const org = orgId(req);
+
+    let matched_driver = null;
+    if (parsed.deliverer_name) {
+      const d = await query(
+        `SELECT id, full_name FROM smartroute_drivers WHERE organization_id=$1 AND active=true AND full_name ILIKE $2 LIMIT 1`,
+        [org, `%${parsed.deliverer_name}%`]
+      );
+      matched_driver = d.rows[0] || null;
+    }
+
+    let matched_vehicle = null;
+    if (parsed.plate) {
+      const v = await query(
+        `SELECT id, plate FROM smartroute_vehicles WHERE organization_id=$1 AND REPLACE(UPPER(plate),'-','')=$2 LIMIT 1`,
+        [org, parsed.plate.toUpperCase().replace(/-/g, '')]
+      );
+      matched_vehicle = v.rows[0] || null;
+    }
+
+    let existing_route = null;
+    if (parsed.romaneio_number) {
+      const ex = await query(`SELECT id, code FROM smartroute_routes WHERE organization_id=$1 AND romaneio_number=$2`, [org, parsed.romaneio_number]);
+      existing_route = ex.rows[0] || null;
+    }
+
+    const codes = parsed.stops.map((s) => s.client_code).filter(Boolean);
+    let pdvByCode = new Map();
+    if (codes.length) {
+      const p = await query(
+        `SELECT id, name, erp_code FROM smartroute_pdvs WHERE organization_id=$1 AND erp_code = ANY($2::text[])`,
+        [org, codes]
+      );
+      pdvByCode = new Map(p.rows.map((row) => [row.erp_code, row]));
+    }
+    const allPdvs = await query(`SELECT id, name FROM smartroute_pdvs WHERE organization_id=$1 AND active=true`, [org]);
+
+    const stopsWithMatch = parsed.stops.map((stop) => {
+      const byCode = pdvByCode.get(stop.client_code);
+      if (byCode) return { ...stop, matched_pdv_id: byCode.id, matched_pdv_name: byCode.name, match_type: 'code' };
+
+      const nameKey = stop.client_name.toLowerCase().slice(0, 12);
+      const byName = nameKey ? allPdvs.rows.find((p) => p.name && p.name.toLowerCase().includes(nameKey)) : null;
+      if (byName) return { ...stop, matched_pdv_id: byName.id, matched_pdv_name: byName.name, match_type: 'name_guess' };
+
+      return { ...stop, matched_pdv_id: null, matched_pdv_name: null, match_type: 'none' };
+    });
+
+    res.json({ ...parsed, stops: stopsWithMatch, matched_driver, matched_vehicle, existing_route });
+  } catch (e) {
+    logError('smartroute.romaneio.parse', e);
+    res.status(500).json({ error: e.message || 'Falha ao processar o PDF' });
+  }
+});
+
+// Commit: grava PDVs novos, pedidos, rota e paradas a partir do preview (já revisado pelo usuário)
+router.post('/romaneio/commit', async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const b = req.body || {};
+    const org = orgId(req);
+    if (!Array.isArray(b.stops) || !b.stops.length) {
+      client.release();
+      return res.status(400).json({ error: 'Nenhuma parada para importar' });
+    }
+
+    await client.query('BEGIN');
+
+    if (b.romaneio_number && !b.force) {
+      const ex = await client.query(`SELECT id FROM smartroute_routes WHERE organization_id=$1 AND romaneio_number=$2`, [org, b.romaneio_number]);
+      if (ex.rows[0]) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({ error: 'Este romaneio já foi importado anteriormente', route_id: ex.rows[0].id });
+      }
+    }
+
+    let depotId = b.depot_id || null;
+    let depotLat = null, depotLng = null;
+    if (!depotId) {
+      const d = await client.query(`SELECT id, lat, lng FROM smartroute_depots WHERE organization_id=$1 AND is_default=true AND active=true LIMIT 1`, [org]);
+      if (d.rows[0]) { depotId = d.rows[0].id; depotLat = d.rows[0].lat; depotLng = d.rows[0].lng; }
+    } else {
+      const d = await client.query(`SELECT lat, lng FROM smartroute_depots WHERE id=$1 AND organization_id=$2`, [depotId, org]);
+      if (d.rows[0]) { depotLat = d.rows[0].lat; depotLng = d.rows[0].lng; }
+    }
+
+    const code = b.romaneio_number ? `ROM-${b.romaneio_number}` : `R-${Date.now().toString(36).toUpperCase()}`;
+    const notes = `Importado do romaneio ${b.romaneio_number || ''}`.trim();
+    const routeRes = await client.query(
+      `INSERT INTO smartroute_routes (organization_id, code, driver_id, vehicle_id, planned_date, status, depot_lat, depot_lng, depot_id, notes, romaneio_number)
+       VALUES ($1,$2,$3,$4,COALESCE($5,CURRENT_DATE),'planejada',$6,$7,$8,$9,$10) RETURNING *`,
+      [org, code, b.driver_id || null, b.vehicle_id || null, b.romaneio_date || null, depotLat, depotLng, depotId, notes, b.romaneio_number || null]
+    );
+    const route = routeRes.rows[0];
+
+    const sortedStops = [...b.stops].sort((a, c) => (a.seq || 0) - (c.seq || 0));
+    let stopCount = 0;
+
+    for (const stop of sortedStops) {
+      let pdvId = stop.pdv_id || null;
+
+      if (!pdvId) {
+        let lat = null, lng = null;
+        try {
+          const g = await geocodeNominatim({ address: stop.address_raw, city: stop.city, state: stop.state });
+          if (g) { lat = g.lat; lng = g.lng; }
+        } catch {}
+
+        const pdvRes = await client.query(
+          `INSERT INTO smartroute_pdvs (organization_id, name, address, city, state, lat, lng, contact_phone, erp_code, active)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,true) RETURNING id`,
+          [org, stop.fantasy_name || stop.client_name, stop.address_raw || null, stop.city || null, stop.state || null, lat, lng, stop.phone || null, stop.client_code || null]
+        );
+        pdvId = pdvRes.rows[0].id;
+      }
+
+      const orderNotes = `Importado do romaneio ${b.romaneio_number || ''} — Cliente ${stop.client_code || ''} (${stop.client_name || ''})`.trim();
+      const orderRes = await client.query(
+        `INSERT INTO smartroute_orders (organization_id, pdv_id, order_number, weight_kg, volume_m3, value_cents, items, priority, delivery_date, status, notes, owner_user_id)
+         VALUES ($1,$2,$3,$4,0,$5,$6,5,$7,'pendente',$8,$9) RETURNING id`,
+        [
+          org, pdvId, stop.venda_number || null, stop.weight_total || 0,
+          Math.round((stop.value_total || 0) * 100),
+          JSON.stringify(stop.products || []),
+          stop.delivery_date || b.romaneio_date || null,
+          orderNotes,
+          req.user?.id || null,
+        ]
+      );
+      const orderId = orderRes.rows[0].id;
+
+      stopCount++;
+      const stopRes = await client.query(
+        `INSERT INTO smartroute_route_stops (route_id, order_id, pdv_id, sequence) VALUES ($1,$2,$3,$4) RETURNING id`,
+        [route.id, orderId, pdvId, stopCount]
+      );
+      await client.query(`UPDATE smartroute_orders SET status='em_rota', route_stop_id=$2, updated_at=NOW() WHERE id=$1`, [orderId, stopRes.rows[0].id]);
+    }
+
+    await client.query(`UPDATE smartroute_routes SET total_stops=$2 WHERE id=$1`, [route.id, stopCount]);
+    await client.query('COMMIT');
+
+    const full = await query(
+      `SELECT r.*, d.full_name AS driver_name, v.plate AS vehicle_plate FROM smartroute_routes r
+       LEFT JOIN smartroute_drivers d ON d.id=r.driver_id LEFT JOIN smartroute_vehicles v ON v.id=r.vehicle_id
+       WHERE r.id=$1`,
+      [route.id]
+    );
+    res.json({ route: full.rows[0], stops_created: stopCount });
+  } catch (e) {
+    await client.query('ROLLBACK').catch(() => {});
+    logError('smartroute.romaneio.commit', e);
+    res.status(500).json({ error: e.message || 'Falha ao importar romaneio' });
+  } finally {
+    client.release();
+  }
+});
 
 export default router;
 

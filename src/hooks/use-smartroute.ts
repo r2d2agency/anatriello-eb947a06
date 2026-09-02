@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { api } from '@/lib/api';
+import { api, API_URL, getAuthToken } from '@/lib/api';
 
 const BASE = '/api/smartroute';
 
@@ -142,6 +142,32 @@ export function useSROptimizeRoute() {
   return useMutation({
     mutationFn: (id: string) => api(`${BASE}/routes/${id}/optimize`, { method: 'POST', body: {} }),
     onSuccess: (_, id) => qc.invalidateQueries({ queryKey: ['sr-route', id] }),
+  });
+}
+
+// Importação de Romaneio (PDF)
+export function useSRParseRomaneio() {
+  return useMutation({
+    mutationFn: async (file: File) => {
+      const formData = new FormData();
+      formData.append('file', file);
+      const token = getAuthToken();
+      const res = await fetch(`${API_URL}${BASE}/romaneio/parse`, {
+        method: 'POST',
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+        body: formData,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || 'Falha ao processar o PDF');
+      return data;
+    },
+  });
+}
+export function useSRCommitRomaneio() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: any) => api(`${BASE}/romaneio/commit`, { method: 'POST', body }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['sr-routes'] }); qc.invalidateQueries({ queryKey: ['sr-orders'] }); qc.invalidateQueries({ queryKey: ['sr-pdvs'] }); },
   });
 }
 

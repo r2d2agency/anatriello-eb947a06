@@ -201,6 +201,7 @@ import PromoterAppHistory from "./pages/promoter-app/PromoterAppHistory";
 import SmartRouteDashboard from "./pages/smartroute/SmartRouteDashboard";
 import SmartRouteMapa from "./pages/smartroute/SmartRouteMapa";
 import SmartRouteRotas from "./pages/smartroute/SmartRouteRotas";
+import SmartRouteImportarRomaneio from "./pages/smartroute/SmartRouteImportarRomaneio";
 import SmartRoutePedidos from "./pages/smartroute/SmartRoutePedidos";
 import SmartRouteRotasMontadas from "./pages/smartroute/SmartRouteRotasMontadas";
 import SmartRouteRotaDoDia from "./pages/smartroute/SmartRouteRotaDoDia";
@@ -516,6 +517,7 @@ const App = () => (
             <Route path="/smartroute" element={<ProtectedRoute><SmartRouteDashboard /></ProtectedRoute>} />
             <Route path="/smartroute/mapa" element={<ProtectedRoute><SmartRouteMapa /></ProtectedRoute>} />
             <Route path="/smartroute/rotas" element={<ProtectedRoute><SmartRouteRotas /></ProtectedRoute>} />
+            <Route path="/smartroute/importar-romaneio" element={<ProtectedRoute><SmartRouteImportarRomaneio /></ProtectedRoute>} />
             <Route path="/smartroute/rotas-montadas" element={<ProtectedRoute><SmartRouteRotasMontadas /></ProtectedRoute>} />
             <Route path="/smartroute/rota-do-dia" element={<ProtectedRoute><SmartRouteRotaDoDia /></ProtectedRoute>} />
             <Route path="/smartroute/simulador" element={<ProtectedRoute><SmartRouteSimulador /></ProtectedRoute>} />

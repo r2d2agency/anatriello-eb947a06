@@ -65,6 +65,7 @@ import {
   Users2,
   TrendingUp,
   FileDown,
+  FileUp,
   Smartphone,
 } from "lucide-react";
 import { API_URL, getAuthToken } from "@/lib/api";
@@ -187,6 +188,7 @@ const getNavSections = (hasConnections: boolean): NavSection[] => [
       { name: "Rota do Dia", href: "/smartroute/rota-do-dia", icon: RouteIcon, pageKey: 'sr_rotas' },
       { name: "Simulador", href: "/smartroute/simulador", icon: RouteIcon, pageKey: 'sr_rotas' },
       { name: "Rotas (Legado)", href: "/smartroute/rotas", icon: RouteIcon, pageKey: 'sr_rotas' },
+      { name: "Importar Romaneio", href: "/smartroute/importar-romaneio", icon: FileUp, pageKey: 'sr_rotas' },
       { name: "Planejador IA", href: "/smartroute/planejador", icon: Sparkles, pageKey: 'sr_rotas' },
       { name: "Pedidos", href: "/smartroute/pedidos", icon: Package, pageKey: 'sr_pedidos' },
       { name: "PDVs / Clientes", href: "/smartroute/pdvs", icon: Store, pageKey: 'sr_pdvs' },

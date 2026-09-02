@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Plus, Trash2, Route as RouteIcon, Wand2, Eye, Sparkles, FileText, PlayCircle, RefreshCw } from "lucide-react";
+import { Plus, Trash2, Route as RouteIcon, Wand2, Eye, Sparkles, FileText, PlayCircle, RefreshCw, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { useSRRoutes, useSRSaveRoute, useSRDeleteRoute, useSRDrivers, useSRVehicles, useSROrders, useSROptimizeRoute, useSRRoute } from "@/hooks/use-smartroute";
 import { useSROptimizeAdvanced } from "@/hooks/use-smartroute-ai";
@@ -102,6 +102,9 @@ export default function SmartRouteRotas() {
               <Label className="text-xs">Data</Label>
               <Input type="date" value={filter.date || ""} onChange={(e) => setFilter({ ...filter, date: e.target.value || undefined })} className="w-44" />
             </div>
+            <Button variant="outline" asChild>
+              <Link to="/smartroute/importar-romaneio"><Upload className="w-4 h-4 mr-1" /> Importar Romaneio</Link>
+            </Button>
             <Button onClick={() => {
               const def = depots.find((d: any) => d.is_default) || depots[0];
               setForm({ planned_date: new Date().toISOString().slice(0, 10), depot_id: def?.id || null });
