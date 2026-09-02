@@ -144,6 +144,38 @@ export function useSROptimizeRoute() {
     onSuccess: (_, id) => qc.invalidateQueries({ queryKey: ['sr-route', id] }),
   });
 }
+export function useSRAddStops() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ routeId, order_ids }: { routeId: string; order_ids: string[] }) =>
+      api(`${BASE}/routes/${routeId}/stops`, { method: 'POST', body: { order_ids } }),
+    onSuccess: (_, { routeId }) => {
+      qc.invalidateQueries({ queryKey: ['sr-route', routeId] });
+      qc.invalidateQueries({ queryKey: ['sr-routes'] });
+      qc.invalidateQueries({ queryKey: ['sr-orders'] });
+    },
+  });
+}
+export function useSRReorderStops() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ routeId, stop_ids }: { routeId: string; stop_ids: string[] }) =>
+      api(`${BASE}/routes/${routeId}/stops/reorder`, { method: 'PUT', body: { stop_ids } }),
+    onSuccess: (_, { routeId }) => qc.invalidateQueries({ queryKey: ['sr-route', routeId] }),
+  });
+}
+export function useSRRemoveStop() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ routeId, stopId }: { routeId: string; stopId: string }) =>
+      api(`${BASE}/routes/${routeId}/stops/${stopId}`, { method: 'DELETE' }),
+    onSuccess: (_, { routeId }) => {
+      qc.invalidateQueries({ queryKey: ['sr-route', routeId] });
+      qc.invalidateQueries({ queryKey: ['sr-routes'] });
+      qc.invalidateQueries({ queryKey: ['sr-orders'] });
+    },
+  });
+}
 
 // Importação de Romaneio (PDF)
 export function useSRParseRomaneio() {

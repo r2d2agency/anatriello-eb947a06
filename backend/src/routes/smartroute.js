@@ -1090,6 +1090,73 @@ router.post('/routes/:id/optimize', async (req, res) => {
   } catch (e) { logError('smartroute.optimize', e); res.status(500).json({ error: e.message }); }
 });
 
+// Adiciona pedidos pendentes como novas paradas ao final de uma rota já criada
+router.post('/routes/:id/stops', async (req, res) => {
+  try {
+    const org = orgId(req);
+    const { order_ids } = req.body || {};
+    if (!Array.isArray(order_ids) || !order_ids.length) return res.status(400).json({ error: 'Informe order_ids' });
+
+    const route = await query(`SELECT id FROM smartroute_routes WHERE id=$1 AND organization_id=$2`, [req.params.id, org]);
+    if (!route.rows[0]) return res.status(404).json({ error: 'Rota não encontrada' });
+
+    const maxSeq = await query(`SELECT COALESCE(MAX(sequence), 0) AS max FROM smartroute_route_stops WHERE route_id=$1`, [req.params.id]);
+    let seq = maxSeq.rows[0].max;
+
+    const ords = await query(`SELECT id, pdv_id FROM smartroute_orders WHERE organization_id=$1 AND id = ANY($2::uuid[]) AND status='pendente'`, [org, order_ids]);
+    if (!ords.rows.length) return res.status(400).json({ error: 'Nenhum pedido pendente encontrado para esses IDs' });
+
+    for (const o of ords.rows) {
+      seq++;
+      const st = await query(`INSERT INTO smartroute_route_stops (route_id, order_id, pdv_id, sequence) VALUES ($1,$2,$3,$4) RETURNING id`, [req.params.id, o.id, o.pdv_id, seq]);
+      await query(`UPDATE smartroute_orders SET status='em_rota', route_stop_id=$2, updated_at=NOW() WHERE id=$1`, [o.id, st.rows[0].id]);
+    }
+    await query(`UPDATE smartroute_routes SET total_stops=(SELECT COUNT(*) FROM smartroute_route_stops WHERE route_id=$1) WHERE id=$1`, [req.params.id]);
+
+    res.json({ ok: true, added: ords.rows.length });
+  } catch (e) { logError('smartroute.addStops', e); res.status(500).json({ error: e.message }); }
+});
+
+// Reordena manualmente as paradas de uma rota (prioridade) — body: { stop_ids: [ordem desejada] }
+router.put('/routes/:id/stops/reorder', async (req, res) => {
+  try {
+    const org = orgId(req);
+    const { stop_ids } = req.body || {};
+    if (!Array.isArray(stop_ids) || !stop_ids.length) return res.status(400).json({ error: 'Informe stop_ids' });
+
+    const route = await query(`SELECT id FROM smartroute_routes WHERE id=$1 AND organization_id=$2`, [req.params.id, org]);
+    if (!route.rows[0]) return res.status(404).json({ error: 'Rota não encontrada' });
+
+    for (let i = 0; i < stop_ids.length; i++) {
+      await query(`UPDATE smartroute_route_stops SET sequence=$2, updated_at=NOW() WHERE id=$1 AND route_id=$3`, [stop_ids[i], i + 1, req.params.id]);
+    }
+    res.json({ ok: true, reordered: stop_ids.length });
+  } catch (e) { logError('smartroute.reorderStops', e); res.status(500).json({ error: e.message }); }
+});
+
+// Remove uma parada da rota — o pedido volta para 'pendente' e pode ser realocado depois
+router.delete('/routes/:id/stops/:stopId', async (req, res) => {
+  try {
+    const org = orgId(req);
+    const route = await query(`SELECT id FROM smartroute_routes WHERE id=$1 AND organization_id=$2`, [req.params.id, org]);
+    if (!route.rows[0]) return res.status(404).json({ error: 'Rota não encontrada' });
+
+    const stop = await query(`SELECT order_id FROM smartroute_route_stops WHERE id=$1 AND route_id=$2`, [req.params.stopId, req.params.id]);
+    if (!stop.rows[0]) return res.status(404).json({ error: 'Parada não encontrada' });
+
+    await query(`UPDATE smartroute_orders SET status='pendente', route_stop_id=NULL, updated_at=NOW() WHERE id=$1`, [stop.rows[0].order_id]);
+    await query(`DELETE FROM smartroute_route_stops WHERE id=$1`, [req.params.stopId]);
+
+    const rest = await query(`SELECT id FROM smartroute_route_stops WHERE route_id=$1 ORDER BY sequence`, [req.params.id]);
+    for (let i = 0; i < rest.rows.length; i++) {
+      await query(`UPDATE smartroute_route_stops SET sequence=$2 WHERE id=$1`, [rest.rows[i].id, i + 1]);
+    }
+    await query(`UPDATE smartroute_routes SET total_stops=$2 WHERE id=$1`, [req.params.id, rest.rows.length]);
+
+    res.json({ ok: true });
+  } catch (e) { logError('smartroute.removeStop', e); res.status(500).json({ error: e.message }); }
+});
+
 // Route events (timeline)
 router.get('/routes/:id/events', async (req, res) => {
   try {

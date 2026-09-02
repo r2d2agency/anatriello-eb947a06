@@ -10,9 +10,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Plus, Trash2, Route as RouteIcon, Wand2, Eye, Sparkles, FileText, PlayCircle, RefreshCw, Upload } from "lucide-react";
+import { Plus, Trash2, Route as RouteIcon, Wand2, Eye, Sparkles, FileText, PlayCircle, RefreshCw, Upload, ArrowUp, ArrowDown, PackagePlus, X } from "lucide-react";
 import { toast } from "sonner";
-import { useSRRoutes, useSRSaveRoute, useSRDeleteRoute, useSRDrivers, useSRVehicles, useSROrders, useSROptimizeRoute, useSRRoute } from "@/hooks/use-smartroute";
+import { useSRRoutes, useSRSaveRoute, useSRDeleteRoute, useSRDrivers, useSRVehicles, useSROrders, useSROptimizeRoute, useSRRoute, useSRAddStops, useSRReorderStops, useSRRemoveStop } from "@/hooks/use-smartroute";
 import { useSROptimizeAdvanced } from "@/hooks/use-smartroute-ai";
 import { useSRReoptimize } from "@/hooks/use-smartroute-planner";
 import { useSRDepots } from "@/hooks/use-smartroute-depots";
@@ -41,6 +41,21 @@ export default function SmartRouteRotas() {
   const [selectedOrders, setSelectedOrders] = useState<string[]>([]);
   const [viewId, setViewId] = useState<string | null>(null);
   const { data: viewRoute } = useSRRoute(viewId || undefined);
+  const addStops = useSRAddStops();
+  const reorderStops = useSRReorderStops();
+  const removeStop = useSRRemoveStop();
+  const [addOrdersOpen, setAddOrdersOpen] = useState(false);
+  const [ordersToAdd, setOrdersToAdd] = useState<string[]>([]);
+  const routeEditable = viewRoute && !["concluida", "cancelada"].includes(viewRoute.status);
+
+  const moveStop = (index: number, dir: -1 | 1) => {
+    if (!viewRoute?.stops) return;
+    const arr = [...viewRoute.stops];
+    const target = index + dir;
+    if (target < 0 || target >= arr.length) return;
+    [arr[index], arr[target]] = [arr[target], arr[index]];
+    reorderStops.mutate({ routeId: viewRoute.id, stop_ids: arr.map((s: any) => s.id) });
+  };
 
   const onSave = async () => {
     try {
@@ -215,7 +230,7 @@ export default function SmartRouteRotas() {
         </Dialog>
 
         {/* View dialog */}
-        <Dialog open={!!viewId} onOpenChange={(v) => !v && setViewId(null)}>
+        <Dialog open={!!viewId} onOpenChange={(v) => { if (!v) { setViewId(null); setAddOrdersOpen(false); setOrdersToAdd([]); } }}>
           <DialogContent className="max-w-3xl">
             <DialogHeader><DialogTitle>Rota {viewRoute?.code}</DialogTitle></DialogHeader>
             {viewRoute && (
@@ -228,13 +243,52 @@ export default function SmartRouteRotas() {
                   <div><span className="text-muted-foreground">Duração est.:</span> {viewRoute.estimated_duration_min ? `${Math.floor(viewRoute.estimated_duration_min/60)}h${String(viewRoute.estimated_duration_min%60).padStart(2,'0')}` : "—"}</div>
                   <div><span className="text-muted-foreground">Custo combustível:</span> {viewRoute.estimated_cost_brl ? <span className="font-semibold">R$ {Number(viewRoute.estimated_cost_brl).toFixed(2)}</span> : "—"}{viewRoute.estimated_fuel_liters ? <span className="text-xs text-muted-foreground"> · {viewRoute.estimated_fuel_liters}L</span> : null}</div>
                 </div>
+
+                {routeEditable && (
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs text-muted-foreground">Use as setas para reordenar por prioridade, ou remova/adicione paradas.</p>
+                    <Button size="sm" variant="outline" onClick={() => setAddOrdersOpen((v) => !v)}>
+                      <PackagePlus className="w-4 h-4 mr-1" /> Adicionar pedido
+                    </Button>
+                  </div>
+                )}
+
+                {addOrdersOpen && (
+                  <div className="border rounded p-2 space-y-2">
+                    <div className="max-h-40 overflow-y-auto space-y-1">
+                      {pendingOrders.map((o: any) => (
+                        <label key={o.id} className="flex items-center gap-2 text-sm p-1 hover:bg-muted rounded cursor-pointer">
+                          <Checkbox checked={ordersToAdd.includes(o.id)} onCheckedChange={(v) => setOrdersToAdd((s) => v ? [...s, o.id] : s.filter((x) => x !== o.id))} />
+                          <span className="flex-1">{o.pdv_name || "?"} · {o.order_number || o.id.slice(0, 6)}</span>
+                          <span className="text-xs text-muted-foreground">{o.weight_kg} kg · {o.volume_m3} m³</span>
+                        </label>
+                      ))}
+                      {!pendingOrders.length && <p className="text-xs text-muted-foreground text-center py-2">Nenhum pedido pendente.</p>}
+                    </div>
+                    <div className="flex justify-end gap-2">
+                      <Button size="sm" variant="ghost" onClick={() => { setAddOrdersOpen(false); setOrdersToAdd([]); }}>Cancelar</Button>
+                      <Button
+                        size="sm"
+                        disabled={!ordersToAdd.length || addStops.isPending}
+                        onClick={() => addStops.mutate({ routeId: viewRoute.id, order_ids: ordersToAdd }, {
+                          onSuccess: (d: any) => { toast.success(`${d.added} pedido(s) adicionado(s) à rota`); setAddOrdersOpen(false); setOrdersToAdd([]); },
+                          onError: (e: any) => toast.error(e.message),
+                        })}
+                      >
+                        Adicionar {ordersToAdd.length > 0 ? `(${ordersToAdd.length})` : ""}
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
                 <div className="border rounded max-h-96 overflow-y-auto">
                   <Table>
                     <TableHeader><TableRow>
                       <TableHead className="w-12">#</TableHead><TableHead>ETA</TableHead><TableHead>PDV</TableHead><TableHead>Pedido</TableHead><TableHead>Peso</TableHead><TableHead>Status</TableHead>
+                      {routeEditable && <TableHead className="text-right">Ações</TableHead>}
                     </TableRow></TableHeader>
                     <TableBody>
-                      {viewRoute.stops?.map((s: any) => (
+                      {viewRoute.stops?.map((s: any, idx: number) => (
                         <TableRow key={s.id}>
                           <TableCell>{s.sequence}</TableCell>
                           <TableCell className="font-mono text-xs">{s.eta_min != null ? `${String(Math.floor(s.eta_min/60)).padStart(2,'0')}:${String(s.eta_min%60).padStart(2,'0')}` : "—"}</TableCell>
@@ -242,6 +296,22 @@ export default function SmartRouteRotas() {
                           <TableCell className="font-mono text-xs">{s.order_number}</TableCell>
                           <TableCell>{s.weight_kg} kg</TableCell>
                           <TableCell><Badge variant="outline">{s.status}</Badge></TableCell>
+                          {routeEditable && (
+                            <TableCell className="text-right whitespace-nowrap">
+                              <Button size="icon" variant="ghost" className="h-6 w-6" disabled={idx === 0 || reorderStops.isPending} onClick={() => moveStop(idx, -1)} title="Subir prioridade">
+                                <ArrowUp className="w-3.5 h-3.5" />
+                              </Button>
+                              <Button size="icon" variant="ghost" className="h-6 w-6" disabled={idx === viewRoute.stops.length - 1 || reorderStops.isPending} onClick={() => moveStop(idx, 1)} title="Descer prioridade">
+                                <ArrowDown className="w-3.5 h-3.5" />
+                              </Button>
+                              <Button
+                                size="icon" variant="ghost" className="h-6 w-6" title="Remover da rota"
+                                onClick={() => { if (confirm("Remover esta parada da rota? O pedido volta para pendente.")) removeStop.mutate({ routeId: viewRoute.id, stopId: s.id }, { onError: (e: any) => toast.error(e.message) }); }}
+                              >
+                                <X className="w-3.5 h-3.5 text-red-500" />
+                              </Button>
+                            </TableCell>
+                          )}
                         </TableRow>
                       ))}
                     </TableBody>
