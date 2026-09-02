@@ -15,6 +15,15 @@ export default defineConfig(() => ({
       includeAssets: ["favicon.ico", "apple-touch-icon.png", "masked-icon.svg"],
       workbox: {
         maximumFileSizeToCacheInBytes: 10 * 1024 * 1024, // 10 MB
+        // version.json must always come from the server. Precaching it can make
+        // an old service worker hide a newly published release indefinitely.
+        globIgnores: ["**/version.json"],
+        runtimeCaching: [
+          {
+            urlPattern: ({ url }) => url.pathname === "/version.json",
+            handler: "NetworkOnly",
+          },
+        ],
       },
       manifest: {
         name: "Anatriello Gestão",
