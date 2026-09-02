@@ -193,6 +193,27 @@ export default function SmartRouteImportarRomaneio() {
               </Alert>
             )}
 
+            {preview.debug_raw_text && (
+              <Alert>
+                <AlertTriangle className="h-4 w-4" />
+                <AlertTitle>Texto extraído do PDF (nenhuma parada reconhecida)</AlertTitle>
+                <AlertDescription>
+                  <p className="text-sm mb-2">
+                    Copie o texto abaixo e envie para o suporte ajustar a leitura deste layout de romaneio.
+                  </p>
+                  <div className="flex justify-end mb-1">
+                    <Button
+                      size="sm" variant="outline"
+                      onClick={() => { navigator.clipboard.writeText(preview.debug_raw_text); toast.success("Texto copiado"); }}
+                    >
+                      Copiar texto
+                    </Button>
+                  </div>
+                  <pre className="text-[10px] bg-muted p-2 rounded max-h-64 overflow-auto whitespace-pre-wrap">{preview.debug_raw_text}</pre>
+                </AlertDescription>
+              </Alert>
+            )}
+
             <Card>
               <CardHeader className="pb-3">
                 <CardTitle className="text-base">Romaneio Nº {preview.romaneio_number}</CardTitle>

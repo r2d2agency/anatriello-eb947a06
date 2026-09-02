@@ -2756,7 +2756,9 @@ router.post('/romaneio/parse', romaneioUpload.single('file'), async (req, res) =
       return { ...stop, matched_pdv_id: null, matched_pdv_name: null, match_type: 'none' };
     });
 
-    res.json({ ...parsed, stops: stopsWithMatch, matched_driver, matched_vehicle, existing_route });
+    const debug_raw_text = parsed.stops.length === 0 ? String(pdfData.text || '').slice(0, 4000) : undefined;
+
+    res.json({ ...parsed, stops: stopsWithMatch, matched_driver, matched_vehicle, existing_route, debug_raw_text });
   } catch (e) {
     logError('smartroute.romaneio.parse', e);
     res.status(500).json({ error: e.message || 'Falha ao processar o PDF' });
