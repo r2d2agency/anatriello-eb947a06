@@ -20,23 +20,35 @@ async function resolveOrgId(req) {
 }
 
 // ---- ensureSchema (JIT) ----
-let schemaReady = false;
-async function ensureSchema() {
-  if (schemaReady) return;
-  await query(`
-    CREATE TABLE IF NOT EXISTS holidays (
+// IMPORTANTE: cada statement roda isolado (não como uma única transação).
+// rh.js também cria/mantém a tabela `holidays` (com colunas name/type/state/city,
+// sem company_id/description/scope) via ensureHolidaysInfrastructure(). Se qualquer
+// statement aqui falhar (ex.: coluna de outra migração ainda não existe), os demais
+// continuam — do contrário uma única falha em `holidays` derrubava a criação de
+// TODAS as tabelas deste módulo (time_period_closings, work_schedules, etc), o que
+// explicava 500 em praticamente toda rota de /api/timeclock/*.
+const SCHEMA_STATEMENTS = [
+  `CREATE TABLE IF NOT EXISTS holidays (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
       company_id UUID REFERENCES companies(id) ON DELETE CASCADE,
       holiday_date DATE NOT NULL,
-      description VARCHAR(255) NOT NULL,
+      description VARCHAR(255),
       scope VARCHAR(20) DEFAULT 'nacional',
       created_at TIMESTAMPTZ DEFAULT NOW()
-    );
-    CREATE INDEX IF NOT EXISTS idx_holidays_org_date ON holidays(organization_id, holiday_date);
-    CREATE UNIQUE INDEX IF NOT EXISTS uq_holidays_org_comp_date ON holidays(organization_id, COALESCE(company_id::text,''), holiday_date);
+    )`,
+  // Coexistência com a versão de `holidays` criada por rh.js (schema mais antigo)
+  `ALTER TABLE holidays ADD COLUMN IF NOT EXISTS company_id UUID REFERENCES companies(id) ON DELETE CASCADE`,
+  `ALTER TABLE holidays ADD COLUMN IF NOT EXISTS description VARCHAR(255)`,
+  `ALTER TABLE holidays ADD COLUMN IF NOT EXISTS scope VARCHAR(20) DEFAULT 'nacional'`,
+  `ALTER TABLE holidays ALTER COLUMN name DROP NOT NULL`,
+  `ALTER TABLE holidays ALTER COLUMN description DROP NOT NULL`,
+  `UPDATE holidays SET description = name WHERE description IS NULL AND name IS NOT NULL`,
+  `UPDATE holidays SET name = description WHERE name IS NULL AND description IS NOT NULL`,
+  `CREATE INDEX IF NOT EXISTS idx_holidays_org_date ON holidays(organization_id, holiday_date)`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS uq_holidays_org_comp_date ON holidays(organization_id, COALESCE(company_id::text,''), holiday_date)`,
 
-    CREATE TABLE IF NOT EXISTS time_bank_entries (
+  `CREATE TABLE IF NOT EXISTS time_bank_entries (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
       company_id UUID REFERENCES companies(id) ON DELETE SET NULL,
@@ -48,10 +60,10 @@ async function ensureSchema() {
       description TEXT,
       created_by UUID REFERENCES users(id) ON DELETE SET NULL,
       created_at TIMESTAMPTZ DEFAULT NOW()
-    );
-    CREATE INDEX IF NOT EXISTS idx_tb_emp_date ON time_bank_entries(employee_id, entry_date);
+    )`,
+  `CREATE INDEX IF NOT EXISTS idx_tb_emp_date ON time_bank_entries(employee_id, entry_date)`,
 
-    CREATE TABLE IF NOT EXISTS punch_adjustment_requests (
+  `CREATE TABLE IF NOT EXISTS punch_adjustment_requests (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
       company_id UUID REFERENCES companies(id) ON DELETE SET NULL,
@@ -65,11 +77,11 @@ async function ensureSchema() {
       reviewed_at TIMESTAMPTZ,
       review_note TEXT,
       created_at TIMESTAMPTZ DEFAULT NOW()
-    );
-    CREATE INDEX IF NOT EXISTS idx_par_org_status ON punch_adjustment_requests(organization_id, status);
-    CREATE INDEX IF NOT EXISTS idx_par_emp ON punch_adjustment_requests(employee_id);
+    )`,
+  `CREATE INDEX IF NOT EXISTS idx_par_org_status ON punch_adjustment_requests(organization_id, status)`,
+  `CREATE INDEX IF NOT EXISTS idx_par_emp ON punch_adjustment_requests(employee_id)`,
 
-    CREATE TABLE IF NOT EXISTS time_period_closings (
+  `CREATE TABLE IF NOT EXISTS time_period_closings (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
       company_id UUID REFERENCES companies(id) ON DELETE SET NULL,
@@ -78,10 +90,10 @@ async function ensureSchema() {
       closed_by UUID REFERENCES users(id) ON DELETE SET NULL,
       closed_at TIMESTAMPTZ DEFAULT NOW(),
       notes TEXT
-    );
-    CREATE INDEX IF NOT EXISTS idx_tpc_org_period ON time_period_closings(organization_id, period_end);
+    )`,
+  `CREATE INDEX IF NOT EXISTS idx_tpc_org_period ON time_period_closings(organization_id, period_end)`,
 
-    CREATE TABLE IF NOT EXISTS punch_edit_log (
+  `CREATE TABLE IF NOT EXISTS punch_edit_log (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       organization_id UUID NOT NULL,
       employee_id UUID NOT NULL,
@@ -93,19 +105,19 @@ async function ensureSchema() {
       reason TEXT,
       edited_by UUID REFERENCES users(id) ON DELETE SET NULL,
       edited_at TIMESTAMPTZ DEFAULT NOW()
-    );
-    CREATE INDEX IF NOT EXISTS idx_pel_emp_date ON punch_edit_log(employee_id, punch_date);
+    )`,
+  `CREATE INDEX IF NOT EXISTS idx_pel_emp_date ON punch_edit_log(employee_id, punch_date)`,
 
-    ALTER TABLE time_punches ADD COLUMN IF NOT EXISTS source VARCHAR(20) DEFAULT 'app';
-    ALTER TABLE time_punches ADD COLUMN IF NOT EXISTS edited_by UUID;
-    ALTER TABLE time_punches ADD COLUMN IF NOT EXISTS edited_at TIMESTAMPTZ;
-    ALTER TABLE time_punches ADD COLUMN IF NOT EXISTS original_time TIMESTAMPTZ;
-    ALTER TABLE time_punches ADD COLUMN IF NOT EXISTS nsr BIGINT;
-    ALTER TABLE time_punches ADD COLUMN IF NOT EXISTS signature_hash VARCHAR(128);
-    ALTER TABLE time_punches ADD COLUMN IF NOT EXISTS selfie_url TEXT;
-    CREATE INDEX IF NOT EXISTS idx_tp_org_nsr ON time_punches(organization_id, nsr);
+  `ALTER TABLE time_punches ADD COLUMN IF NOT EXISTS source VARCHAR(20) DEFAULT 'app'`,
+  `ALTER TABLE time_punches ADD COLUMN IF NOT EXISTS edited_by UUID`,
+  `ALTER TABLE time_punches ADD COLUMN IF NOT EXISTS edited_at TIMESTAMPTZ`,
+  `ALTER TABLE time_punches ADD COLUMN IF NOT EXISTS original_time TIMESTAMPTZ`,
+  `ALTER TABLE time_punches ADD COLUMN IF NOT EXISTS nsr BIGINT`,
+  `ALTER TABLE time_punches ADD COLUMN IF NOT EXISTS signature_hash VARCHAR(128)`,
+  `ALTER TABLE time_punches ADD COLUMN IF NOT EXISTS selfie_url TEXT`,
+  `CREATE INDEX IF NOT EXISTS idx_tp_org_nsr ON time_punches(organization_id, nsr)`,
 
-    CREATE TABLE IF NOT EXISTS time_records (
+  `CREATE TABLE IF NOT EXISTS time_records (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       organization_id UUID NOT NULL,
       employee_id UUID NOT NULL,
@@ -118,10 +130,10 @@ async function ensureSchema() {
       created_at TIMESTAMPTZ DEFAULT NOW(),
       updated_at TIMESTAMPTZ DEFAULT NOW(),
       UNIQUE(employee_id, record_date)
-    );
+    )`,
 
-    -- ==== FASE 3: Jornadas reutilizáveis ====
-    CREATE TABLE IF NOT EXISTS work_schedules (
+  // ==== FASE 3: Jornadas reutilizáveis ====
+  `CREATE TABLE IF NOT EXISTS work_schedules (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
       company_id UUID REFERENCES companies(id) ON DELETE SET NULL,
@@ -143,18 +155,18 @@ async function ensureSchema() {
       active BOOLEAN DEFAULT TRUE,
       created_at TIMESTAMPTZ DEFAULT NOW(),
       updated_at TIMESTAMPTZ DEFAULT NOW()
-    );
-    CREATE INDEX IF NOT EXISTS idx_ws_org ON work_schedules(organization_id);
-    ALTER TABLE employees ADD COLUMN IF NOT EXISTS work_schedule_id UUID REFERENCES work_schedules(id) ON DELETE SET NULL;
+    )`,
+  `CREATE INDEX IF NOT EXISTS idx_ws_org ON work_schedules(organization_id)`,
+  `ALTER TABLE employees ADD COLUMN IF NOT EXISTS work_schedule_id UUID REFERENCES work_schedules(id) ON DELETE SET NULL`,
 
-    -- ==== FASE 6: Banco de Horas com Compensação e Expiração ====
-    ALTER TABLE time_bank_entries ADD COLUMN IF NOT EXISTS expires_at DATE;
-    ALTER TABLE time_bank_entries ADD COLUMN IF NOT EXISTS expired BOOLEAN DEFAULT FALSE;
-    ALTER TABLE time_bank_entries ADD COLUMN IF NOT EXISTS expired_at TIMESTAMPTZ;
-    ALTER TABLE time_bank_entries ADD COLUMN IF NOT EXISTS compensation_id UUID;
-    CREATE INDEX IF NOT EXISTS idx_tb_expires ON time_bank_entries(expires_at) WHERE expired = FALSE AND minutes > 0;
+  // ==== FASE 6: Banco de Horas com Compensação e Expiração ====
+  `ALTER TABLE time_bank_entries ADD COLUMN IF NOT EXISTS expires_at DATE`,
+  `ALTER TABLE time_bank_entries ADD COLUMN IF NOT EXISTS expired BOOLEAN DEFAULT FALSE`,
+  `ALTER TABLE time_bank_entries ADD COLUMN IF NOT EXISTS expired_at TIMESTAMPTZ`,
+  `ALTER TABLE time_bank_entries ADD COLUMN IF NOT EXISTS compensation_id UUID`,
+  `CREATE INDEX IF NOT EXISTS idx_tb_expires ON time_bank_entries(expires_at) WHERE expired = FALSE AND minutes > 0`,
 
-    CREATE TABLE IF NOT EXISTS time_bank_config (
+  `CREATE TABLE IF NOT EXISTS time_bank_config (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
       company_id UUID REFERENCES companies(id) ON DELETE CASCADE,
@@ -166,10 +178,10 @@ async function ensureSchema() {
       auto_expire_enabled BOOLEAN DEFAULT TRUE,
       created_at TIMESTAMPTZ DEFAULT NOW(),
       updated_at TIMESTAMPTZ DEFAULT NOW()
-    );
-    CREATE UNIQUE INDEX IF NOT EXISTS uq_tb_config_org_comp ON time_bank_config(organization_id, COALESCE(company_id::text,''));
+    )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS uq_tb_config_org_comp ON time_bank_config(organization_id, COALESCE(company_id::text,''))`,
 
-    CREATE TABLE IF NOT EXISTS time_bank_compensations (
+  `CREATE TABLE IF NOT EXISTS time_bank_compensations (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
       company_id UUID REFERENCES companies(id) ON DELETE SET NULL,
@@ -184,12 +196,12 @@ async function ensureSchema() {
       review_note TEXT,
       executed_entry_id UUID,
       created_at TIMESTAMPTZ DEFAULT NOW()
-    );
-    CREATE INDEX IF NOT EXISTS idx_tbc_org_status ON time_bank_compensations(organization_id, status);
-    CREATE INDEX IF NOT EXISTS idx_tbc_emp ON time_bank_compensations(employee_id, planned_date);
+    )`,
+  `CREATE INDEX IF NOT EXISTS idx_tbc_org_status ON time_bank_compensations(organization_id, status)`,
+  `CREATE INDEX IF NOT EXISTS idx_tbc_emp ON time_bank_compensations(employee_id, planned_date)`,
 
-    -- Trigger para preencher expires_at automaticamente em créditos
-    CREATE OR REPLACE FUNCTION set_time_bank_expiration()
+  // Trigger para preencher expires_at automaticamente em créditos
+  `CREATE OR REPLACE FUNCTION set_time_bank_expiration()
     RETURNS TRIGGER AS $$
     DECLARE
       cfg_months INTEGER;
@@ -204,14 +216,14 @@ async function ensureSchema() {
         NEW.expires_at := NEW.entry_date + ((COALESCE(cfg_months, 12)) || ' months')::interval;
       END IF;
       RETURN NEW;
-    END; $$ LANGUAGE plpgsql;
+    END; $$ LANGUAGE plpgsql`,
 
-    DROP TRIGGER IF EXISTS trg_set_tb_expiration ON time_bank_entries;
-    CREATE TRIGGER trg_set_tb_expiration BEFORE INSERT ON time_bank_entries
-      FOR EACH ROW EXECUTE FUNCTION set_time_bank_expiration();
+  `DROP TRIGGER IF EXISTS trg_set_tb_expiration ON time_bank_entries`,
+  `CREATE TRIGGER trg_set_tb_expiration BEFORE INSERT ON time_bank_entries
+      FOR EACH ROW EXECUTE FUNCTION set_time_bank_expiration()`,
 
-    -- ==== FASE 8: Espelho Digital com Aceite ====
-    CREATE TABLE IF NOT EXISTS time_mirror_acceptances (
+  // ==== FASE 8: Espelho Digital com Aceite ====
+  `CREATE TABLE IF NOT EXISTS time_mirror_acceptances (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
       company_id UUID REFERENCES companies(id) ON DELETE SET NULL,
@@ -231,12 +243,23 @@ async function ensureSchema() {
       device_info JSONB,
       generated_by UUID REFERENCES users(id) ON DELETE SET NULL,
       generated_at TIMESTAMPTZ DEFAULT NOW()
-    );
-    CREATE INDEX IF NOT EXISTS idx_mirror_org_month ON time_mirror_acceptances(organization_id, reference_month);
-    CREATE INDEX IF NOT EXISTS idx_mirror_emp ON time_mirror_acceptances(employee_id, reference_month);
-    CREATE UNIQUE INDEX IF NOT EXISTS uq_mirror_emp_month ON time_mirror_acceptances(employee_id, reference_month);
-  `).then(() => { schemaReady = true; })
-   .catch(err => { logError('timeclock.ensureSchema', err); schemaReady = false; });
+    )`,
+  `CREATE INDEX IF NOT EXISTS idx_mirror_org_month ON time_mirror_acceptances(organization_id, reference_month)`,
+  `CREATE INDEX IF NOT EXISTS idx_mirror_emp ON time_mirror_acceptances(employee_id, reference_month)`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS uq_mirror_emp_month ON time_mirror_acceptances(employee_id, reference_month)`,
+];
+
+let schemaReady = false;
+async function ensureSchema() {
+  if (schemaReady) return;
+  for (const stmt of SCHEMA_STATEMENTS) {
+    try {
+      await query(stmt);
+    } catch (err) {
+      logError('timeclock.ensureSchema.statement', err, { statement: stmt.slice(0, 120) });
+    }
+  }
+  schemaReady = true;
 }
 
 router.use(async (_req, _res, next) => { try { await ensureSchema(); } catch {} next(); });
@@ -638,7 +661,7 @@ router.get('/cartao-ponto', async (req, res) => {
     let empRow = null;
     try {
       const emp = await query(
-        `SELECT e.id, e.full_name, e.cpf, e.registration, e.work_schedule, e.company_id,
+        `SELECT e.id, e.full_name, e.cpf, e.registration_number, e.work_schedule, e.work_schedule_id, e.company_id,
                 c.trade_name AS company_name, c.cnpj AS company_cnpj,
                 d.name AS department_name, e.position
          FROM employees e
@@ -652,7 +675,7 @@ router.get('/cartao-ponto', async (req, res) => {
       // fallback sem join em rh_departments (tabela pode não existir)
       try {
         const emp2 = await query(
-          `SELECT e.id, e.full_name, e.cpf, e.registration, e.work_schedule, e.company_id,
+          `SELECT e.id, e.full_name, e.cpf, e.registration_number, e.work_schedule, e.work_schedule_id, e.company_id,
                   c.trade_name AS company_name, c.cnpj AS company_cnpj,
                   NULL::text AS department_name, e.position
            FROM employees e
@@ -1576,7 +1599,7 @@ router.get('/closings', async (req, res) => {
        WHERE tpc.organization_id = $1
        ORDER BY tpc.period_end DESC LIMIT 50`, [orgId]);
     res.json(r.rows);
-  } catch (err) { res.status(500).json({ error: 'Erro' }); }
+  } catch (err) { logError('timeclock.closings.get', err); res.status(500).json({ error: 'Erro' }); }
 });
 
 router.post('/closings', async (req, res) => {
