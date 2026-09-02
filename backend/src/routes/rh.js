@@ -1784,19 +1784,100 @@ router.get('/dashboard-stats', async (req, res) => {
     const orgId = req.query.org_id || await getUserOrgId(req.userId);
     if (!orgId) return res.json({});
     const today = new Date().toISOString().slice(0, 10);
-    const lateRes = await query(
-      `SELECT tr.*, e.full_name, e.work_schedule
-       FROM time_records tr JOIN employees e ON e.id = tr.employee_id
-       WHERE tr.organization_id = $1 AND tr.record_date = $2
-         AND tr.entry1 IS NOT NULL AND e.work_schedule IS NOT NULL
-         AND tr.entry1 > CAST(SPLIT_PART(e.work_schedule, '-', 1) || ':00' AS TIME) + INTERVAL '5 minutes'
-       ORDER BY tr.entry1 DESC`, [orgId, today]);
-    const absenceRes = await query(
-      `SELECT e.id, e.full_name, e.position, d.name as department_name
-       FROM employees e LEFT JOIN rh_departments d ON d.id = e.department_id
-       WHERE e.organization_id = $1 AND e.status = 'ativo'
-         AND NOT EXISTS (SELECT 1 FROM time_records tr WHERE tr.employee_id = e.id AND tr.record_date = $2)
-       ORDER BY e.full_name`, [orgId, today]);
+    const dow = new Date(today + 'T12:00:00').getDay();
+
+    // Escala de cada colaborador ativo, pra saber o horário previsto de entrada hoje.
+    let empSchedules;
+    try {
+      empSchedules = await query(`
+        SELECT e.id, e.full_name, e.position, d.name AS department_name, e.work_schedule, e.work_schedule_id,
+               ws.schedule_json, ws.kind AS ws_kind, ws.cycle_pattern, ws.cycle_start_date
+        FROM employees e
+        LEFT JOIN rh_departments d ON d.id = e.department_id
+        LEFT JOIN work_schedules ws ON ws.id = e.work_schedule_id
+        WHERE e.organization_id = $1 AND e.status = 'ativo'
+      `, [orgId]);
+    } catch (_) {
+      empSchedules = await query(`
+        SELECT e.id, e.full_name, e.position, d.name AS department_name, e.work_schedule, NULL::uuid AS work_schedule_id,
+               NULL::jsonb AS schedule_json, NULL::text AS ws_kind, NULL::text AS cycle_pattern, NULL::date AS cycle_start_date
+        FROM employees e LEFT JOIN rh_departments d ON d.id = e.department_id
+        WHERE e.organization_id = $1 AND e.status = 'ativo'
+      `, [orgId]);
+    }
+
+    // Primeira batida do dia — considera tanto o app (time_punches) quanto lançamento manual (time_records),
+    // pois um colaborador pode ter batido só pelo app e antes ele era ignorado aqui (aparecia como "ausente").
+    const punchesToday = await query(`
+      SELECT employee_id, to_char(MIN(punched_at) AT TIME ZONE 'America/Sao_Paulo', 'HH24:MI') AS first_time
+      FROM time_punches
+      WHERE organization_id = $1 AND (punched_at AT TIME ZONE 'America/Sao_Paulo')::date = $2::date
+      GROUP BY employee_id
+    `, [orgId, today]);
+    const punchByEmp = new Map(punchesToday.rows.map((r) => [r.employee_id, r.first_time]));
+
+    const manualToday = await query(
+      `SELECT employee_id, to_char(entry1, 'HH24:MI') AS entry1 FROM time_records WHERE organization_id = $1 AND record_date = $2 AND entry1 IS NOT NULL`,
+      [orgId, today]
+    );
+    const manualByEmp = new Map(manualToday.rows.map((r) => [r.employee_id, r.entry1]));
+
+    const onLeaveRes = await query(
+      `SELECT employee_id FROM employee_absences WHERE $2::date BETWEEN start_date AND end_date`,
+      [orgId, today]
+    ).catch(() => ({ rows: [] }));
+    const onLeaveSet = new Set(onLeaveRes.rows.map((r) => r.employee_id));
+
+    const toleranceRes = await query(
+      `SELECT late_tolerance_minutes FROM time_rules WHERE organization_id = $1 AND employee_id IS NULL LIMIT 1`,
+      [orgId]
+    ).catch(() => ({ rows: [] }));
+    const lateTolerance = toleranceRes.rows[0]?.late_tolerance_minutes ?? 10;
+
+    const toMin = (hhmm) => {
+      const m = String(hhmm || '').match(/^(\d{1,2}):(\d{2})/);
+      return m ? parseInt(m[1], 10) * 60 + parseInt(m[2], 10) : null;
+    };
+
+    const lateArrivals = [];
+    const absentEmployees = [];
+
+    for (const emp of empSchedules.rows) {
+      if (onLeaveSet.has(emp.id)) continue; // férias/atestado/afastamento cobre hoje — não é falta nem atraso
+
+      const scheduleData = emp.work_schedule_id ? {
+        schedule_json: emp.schedule_json,
+        kind: emp.ws_kind,
+        cycle_pattern: emp.cycle_pattern,
+        cycle_start_date: emp.cycle_start_date ? new Date(emp.cycle_start_date).toISOString().slice(0, 10) : null,
+      } : emp.work_schedule;
+      const schedule = parseWorkSchedule(scheduleData, dow, today);
+      if (!schedule.hasSchedule || schedule.isDayOff || !schedule.entries.length) continue; // sem escala hoje (folga ou não configurado)
+
+      const punchTime = punchByEmp.get(emp.id);
+      const manualTime = manualByEmp.get(emp.id);
+      const actualTime = [punchTime, manualTime].filter(Boolean).sort()[0]; // mais cedo dos dois registros, se houver os dois
+
+      if (!actualTime) {
+        absentEmployees.push({ id: emp.id, full_name: emp.full_name, position: emp.position, department_name: emp.department_name });
+        continue;
+      }
+
+      const expectedMin = schedule.entries[0].startMin;
+      const actualMin = toMin(actualTime);
+      if (expectedMin == null || actualMin == null) continue;
+      const lateBy = actualMin - expectedMin;
+      if (lateBy > 0) {
+        lateArrivals.push({
+          id: emp.id, employee_id: emp.id, full_name: emp.full_name, work_schedule: emp.work_schedule,
+          entry1: actualTime, expected_time: schedule.entries[0].start,
+          late_minutes: lateBy,
+          severity: lateBy > lateTolerance ? 'red' : 'yellow',
+        });
+      }
+    }
+    lateArrivals.sort((a, b) => b.late_minutes - a.late_minutes);
+
     const vacExpiring = await query(
       `SELECT e.id, e.full_name, e.admission_date, e.position
        FROM employees e WHERE e.organization_id = $1 AND e.status = 'ativo' AND e.admission_date IS NOT NULL
@@ -1821,7 +1902,7 @@ router.get('/dashboard-stats', async (req, res) => {
          (SELECT COUNT(*) FROM employees WHERE organization_id = $1 AND status = 'ferias') as on_vacation,
          (SELECT COUNT(*) FROM employees WHERE organization_id = $1 AND status = 'afastado') as on_leave`, [orgId]);
     res.json({
-      late_arrivals: lateRes.rows, absences_today: absenceRes.rows,
+      late_arrivals: lateArrivals, absences_today: absentEmployees,
       vacations_expiring: vacExpiring.rows, pending_certificates: pendingCerts.rows,
       active_vacations: activeVacations.rows, summary: countRes.rows[0] || {},
     });
