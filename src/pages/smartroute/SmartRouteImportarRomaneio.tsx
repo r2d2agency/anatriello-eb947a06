@@ -34,10 +34,10 @@ interface ParsedStop {
   match_type: MatchType;
 }
 
-const MATCH_BADGE: Record<MatchType, { label: string; variant: "default" | "secondary" | "destructive"; icon: any }> = {
-  code: { label: "Vinculado (código)", variant: "default", icon: CheckCircle2 },
-  name_guess: { label: "Sugestão por nome — confira", variant: "secondary", icon: HelpCircle },
-  none: { label: "Cliente novo — será criado", variant: "destructive", icon: AlertTriangle },
+const MATCH_BADGE: Record<MatchType, { label: string; hint: string; variant: "default" | "secondary" | "destructive"; icon: any }> = {
+  code: { label: "Cliente já cadastrado", hint: "Reconhecido automaticamente pelo código — conectado ao PDV existente.", variant: "default", icon: CheckCircle2 },
+  name_guess: { label: "Sugestão por nome — confira", hint: "Nome parecido com um PDV existente, mas o código não bateu. Confirme ou troque abaixo.", variant: "secondary", icon: HelpCircle },
+  none: { label: "Cliente novo", hint: "Será cadastrado automaticamente com os dados deste romaneio. Nas próximas importações, esse código já conecta sozinho.", variant: "destructive", icon: AlertTriangle },
 };
 
 export default function SmartRouteImportarRomaneio() {
@@ -274,6 +274,7 @@ export default function SmartRouteImportarRomaneio() {
                             <div className="flex items-center gap-2">
                               <Badge variant={badge.variant} className="text-[10px] gap-1"><Icon className="w-3 h-3" />{badge.label}</Badge>
                             </div>
+                            <p className="text-[10px] text-muted-foreground mt-0.5 max-w-56">{badge.hint}</p>
                             <Select value={s.matched_pdv_id || "__new__"} onValueChange={(v) => updateStopPdv(s.seq, v)}>
                               <SelectTrigger className="h-7 text-xs mt-1 w-56"><SelectValue /></SelectTrigger>
                               <SelectContent>
