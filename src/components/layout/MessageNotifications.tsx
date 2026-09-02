@@ -14,6 +14,11 @@ import { chatEvents } from "@/lib/chat-events";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { useNotificationSound } from "@/hooks/use-notification-sound";
+
+const safeFormatTime = (v: any, fmt: string, fallback = "—") => {
+  const d = v ? new Date(v) : null;
+  return d && !Number.isNaN(d.getTime()) ? format(d, fmt, { locale: ptBR }) : fallback;
+};
 import { useProjectNoteNotifications, useProjectNoteNotificationMutations } from "@/hooks/use-projects";
 
 interface UnreadConversation {
@@ -236,7 +241,7 @@ export function MessageNotifications() {
                               <>
                                 <span className="text-[10px] text-muted-foreground">•</span>
                                 <span className="text-[10px] text-muted-foreground whitespace-nowrap">
-                                  {format(new Date(conv.last_message_at), "HH:mm", { locale: ptBR })}
+                                  {safeFormatTime(conv.last_message_at, "HH:mm")}
                                 </span>
                               </>
                             )}
@@ -303,7 +308,7 @@ export function MessageNotifications() {
                             <span className="font-medium">{notif.sender_name}</span>: {notif.content_preview}
                           </p>
                           <span className="text-[10px] text-muted-foreground">
-                            {format(new Date(notif.created_at), "dd/MM HH:mm", { locale: ptBR })}
+                            {safeFormatTime(notif.created_at, "dd/MM HH:mm")}
                           </span>
                         </div>
                         <Button

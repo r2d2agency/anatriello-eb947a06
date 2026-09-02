@@ -13,6 +13,11 @@ import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { useNotificationSound } from "@/hooks/use-notification-sound";
 
+const safeFormatTime = (v: any, fmt: string, fallback = "—") => {
+  const d = v ? new Date(v) : null;
+  return d && !Number.isNaN(d.getTime()) ? format(d, fmt, { locale: ptBR }) : fallback;
+};
+
 interface CRMAlert {
   id: string;
   type: string;
@@ -223,7 +228,7 @@ export function CRMAlerts() {
                         {getSourceLabel(alert)}
                       </Badge>
                       <span className="text-[10px] text-muted-foreground">
-                        {format(new Date(alert.created_at), "HH:mm", { locale: ptBR })}
+                        {safeFormatTime(alert.created_at, "HH:mm")}
                       </span>
                     </div>
                   </div>
