@@ -386,6 +386,12 @@ export default function PromotorHome() {
     entrada: '🟢 Entrada', saida_intervalo: '🟡 Saída Intervalo', retorno_intervalo: '🔵 Retorno Intervalo', saida: '🔴 Saída', extraordinaria: '⚪ Extra'
   };
 
+  const safeTime = (value: any): string => {
+    if (!value) return '—';
+    const d = new Date(String(value).replace(' ', 'T'));
+    return d && !Number.isNaN(d.getTime()) ? format(d, 'HH:mm') : '—';
+  };
+
   const canPunch = scheduleStatus?.is_within_schedule || scheduleStatus?.has_overtime_approval;
   const isOutsideSchedule = scheduleStatus && !scheduleStatus.is_within_schedule;
 
@@ -831,7 +837,7 @@ export default function PromotorHome() {
                     {todayPunches.map((p: any) => (
                       <div key={p.id} className="flex items-center justify-between text-xs">
                         <span>{PUNCH_LABELS[p.punch_type] || p.punch_type}</span>
-                        <span className="text-muted-foreground">{format(new Date(p.punched_at), 'HH:mm')}</span>
+                        <span className="text-muted-foreground">{safeTime(p.punched_at || p.offline_local_time || p.created_at)}</span>
                       </div>
                     ))}
                   </div>
@@ -917,7 +923,7 @@ export default function PromotorHome() {
                 {todayPunches.map((p: any) => (
                   <div key={p.id} className="flex items-center justify-between text-xs">
                     <span>{PUNCH_LABELS[p.punch_type] || p.punch_type}</span>
-                    <span className="text-muted-foreground">{format(new Date(p.punched_at), 'HH:mm')}</span>
+                    <span className="text-muted-foreground">{safeTime(p.punched_at || p.offline_local_time || p.created_at)}</span>
                   </div>
                 ))}
               </div>

@@ -11,6 +11,12 @@ import { format, differenceInDays, addYears } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 
+function safeDate(value: any): string {
+  if (!value) return "—";
+  const d = new Date(String(value).replace(" ", "T"));
+  return d && !Number.isNaN(d.getTime()) ? format(d, "dd/MM/yyyy") : "—";
+}
+
 export default function ColaboradorFerias() {
   const { data: vacations, isLoading } = useColabVacations();
   const { data: meFull } = useColabMeFull();
@@ -116,7 +122,7 @@ function VacationRow({ v }: any) {
     <div className="bg-white rounded-2xl p-3 shadow-sm flex justify-between items-center">
       <div>
         <p className="text-xs text-slate-500">Período</p>
-        <p className="text-sm font-semibold">{format(new Date(v.start_date), "dd/MM/yyyy")} a {format(new Date(v.end_date), "dd/MM/yyyy")} ({v.days_total} dias)</p>
+        <p className="text-sm font-semibold">{safeDate(v.start_date)} a {safeDate(v.end_date)} ({v.days_total} dias)</p>
         <p className="text-[10px] text-slate-400 mt-0.5 capitalize">Status: {v.status}</p>
       </div>
       <ChevronRight className="h-4 w-4 text-slate-300" />

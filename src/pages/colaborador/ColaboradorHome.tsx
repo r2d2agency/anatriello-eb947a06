@@ -21,6 +21,20 @@ import { ptBR } from "date-fns/locale";
 import { cn } from "@/lib/utils";
 import anatrielloLogo from "@/assets/anatriello-logo.png.asset.json";
 
+function safeParseDate(value: any): Date | null {
+  if (!value) return null;
+  const d = new Date(String(value).replace(" ", "T"));
+  return d && !Number.isNaN(d.getTime()) ? d : null;
+}
+function safeDateBR(value: any): string {
+  const d = safeParseDate(value);
+  return d ? format(d, "dd/MM/yyyy", { locale: ptBR }) : "—";
+}
+function safeDateTimeBR(value: any): string {
+  const d = safeParseDate(value);
+  return d ? format(d, "dd/MM 'às' HH:mm", { locale: ptBR }) : "—";
+}
+
 // Até 6 batidas por dia: entrada, café (15 min), almoço, saída
 const PUNCH_ORDER = ["entrada", "saida_cafe", "retorno_cafe", "saida_intervalo", "retorno_intervalo", "saida"];
 const MAX_PUNCHES_PER_DAY = 6;
@@ -559,8 +573,8 @@ export default function ColaboradorHome() {
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-semibold text-slate-800 truncate">{a.label}</p>
                       <p className="text-xs text-slate-500">
-                        {format(new Date(a.date), "dd/MM/yyyy", { locale: ptBR })}
-                        {a.end_date ? ` — ${format(new Date(a.end_date), "dd/MM/yyyy", { locale: ptBR })}` : ""}
+                        {safeDateBR(a.date)}
+                        {a.end_date ? ` — ${safeDateBR(a.end_date)}` : ""}
                       </p>
                     </div>
                     <span className={cn(
@@ -591,7 +605,7 @@ export default function ColaboradorHome() {
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-semibold truncate">{a.title}</p>
                   <p className="text-xs text-slate-500 truncate">{a.body}</p>
-                  <p className="text-[10px] text-slate-400 mt-0.5">{format(new Date(a.published_at), "dd/MM 'às' HH:mm")}</p>
+                  <p className="text-[10px] text-slate-400 mt-0.5">{safeDateTimeBR(a.published_at)}</p>
                 </div>
               </div>
             ))}
