@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { Card, CardContent } from "@/components/ui/card";
@@ -10,15 +10,55 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Plus, Trash2, Route as RouteIcon, Wand2, Eye, Sparkles, FileText, PlayCircle, RefreshCw, Upload, ArrowUp, ArrowDown, PackagePlus, X } from "lucide-react";
+import { Plus, Trash2, Route as RouteIcon, Wand2, Eye, Sparkles, FileText, PlayCircle, RefreshCw, Upload, ArrowUp, ArrowDown, PackagePlus, X, Map as MapIcon } from "lucide-react";
 import { toast } from "sonner";
-import { useSRRoutes, useSRSaveRoute, useSRDeleteRoute, useSRDrivers, useSRVehicles, useSROrders, useSROptimizeRoute, useSRRoute, useSRAddStops, useSRReorderStops, useSRRemoveStop } from "@/hooks/use-smartroute";
+import { useSRRoutes, useSRSaveRoute, useSRDeleteRoute, useSRDrivers, useSRVehicles, useSROrders, useSROptimizeRoute, useSRRoute, useSRAddStops, useSRReorderStops, useSRRemoveStop, useSRRouteGeometry } from "@/hooks/use-smartroute";
 import { useSROptimizeAdvanced } from "@/hooks/use-smartroute-ai";
 import { useSRReoptimize } from "@/hooks/use-smartroute-planner";
 import { useSRDepots } from "@/hooks/use-smartroute-depots";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { PageAssistant, ASSISTANT_CONTENT } from "@/components/smartroute/PageAssistant";
+import L from "leaflet";
+import "leaflet/dist/leaflet.css";
+
+function RouteMapPreview({ points, legs }: { points: any[]; legs: number[][][] }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const mapRef = useRef<L.Map | null>(null);
+
+  useEffect(() => {
+    if (!containerRef.current || mapRef.current) return;
+    const map = L.map(containerRef.current).setView([-23.55, -46.63], 12);
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "© OpenStreetMap" }).addTo(map);
+    mapRef.current = map;
+    return () => { map.remove(); mapRef.current = null; };
+  }, []);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !points?.length) return;
+    const layer = L.layerGroup().addTo(map);
+    (legs || []).forEach((leg) => {
+      if (Array.isArray(leg) && leg.length) L.polyline(leg as [number, number][], { color: "#2563eb", weight: 4, opacity: 0.75 }).addTo(layer);
+    });
+    points.forEach((p: any) => {
+      const isDepot = !!p.is_depot;
+      const icon = L.divIcon({
+        className: "",
+        html: `<div style="background:${isDepot ? "#16a34a" : "#2563eb"};color:#fff;width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.35)">${isDepot ? "CD" : p.sequence}</div>`,
+        iconSize: [26, 26], iconAnchor: [13, 13],
+      });
+      L.marker([p.lat, p.lng], { icon })
+        .bindTooltip(isDepot ? "Centro de Distribuição" : `#${p.sequence} · ${p.pdv_name || ""}`)
+        .addTo(layer);
+    });
+    const bounds = points.map((p: any) => [p.lat, p.lng] as [number, number]);
+    if (bounds.length) map.fitBounds(bounds, { padding: [30, 30], maxZoom: 15 });
+    return () => { layer.remove(); };
+  }, [points, legs]);
+
+  return <div ref={containerRef} className="h-80 w-full rounded border" />;
+}
 
 
 const statusColor: Record<string, string> = { planejada: "bg-slate-200", em_andamento: "bg-blue-200", concluida: "bg-emerald-200", cancelada: "bg-red-200" };
@@ -41,6 +81,8 @@ export default function SmartRouteRotas() {
   const [selectedOrders, setSelectedOrders] = useState<string[]>([]);
   const [viewId, setViewId] = useState<string | null>(null);
   const { data: viewRoute } = useSRRoute(viewId || undefined);
+  const [showMap, setShowMap] = useState(false);
+  const { data: geometry, isLoading: geometryLoading } = useSRRouteGeometry(viewId || undefined, showMap);
   const addStops = useSRAddStops();
   const reorderStops = useSRReorderStops();
   const removeStop = useSRRemoveStop();
@@ -230,7 +272,7 @@ export default function SmartRouteRotas() {
         </Dialog>
 
         {/* View dialog */}
-        <Dialog open={!!viewId} onOpenChange={(v) => { if (!v) { setViewId(null); setAddOrdersOpen(false); setOrdersToAdd([]); } }}>
+        <Dialog open={!!viewId} onOpenChange={(v) => { if (!v) { setViewId(null); setAddOrdersOpen(false); setOrdersToAdd([]); setShowMap(false); } }}>
           <DialogContent className="max-w-3xl">
             <DialogHeader><DialogTitle>Rota {viewRoute?.code}</DialogTitle></DialogHeader>
             {viewRoute && (
@@ -243,6 +285,30 @@ export default function SmartRouteRotas() {
                   <div><span className="text-muted-foreground">Duração est.:</span> {viewRoute.estimated_duration_min ? `${Math.floor(viewRoute.estimated_duration_min/60)}h${String(viewRoute.estimated_duration_min%60).padStart(2,'0')}` : "—"}</div>
                   <div><span className="text-muted-foreground">Custo combustível:</span> {viewRoute.estimated_cost_brl ? <span className="font-semibold">R$ {Number(viewRoute.estimated_cost_brl).toFixed(2)}</span> : "—"}{viewRoute.estimated_fuel_liters ? <span className="text-xs text-muted-foreground"> · {viewRoute.estimated_fuel_liters}L</span> : null}</div>
                 </div>
+
+                <Button size="sm" variant="outline" onClick={() => setShowMap((v) => !v)}>
+                  <MapIcon className="w-4 h-4 mr-1" /> {showMap ? "Esconder mapa" : "Ver traçado no mapa"}
+                </Button>
+
+                {showMap && (
+                  geometryLoading ? (
+                    <p className="text-sm text-muted-foreground text-center py-8">Calculando o traçado...</p>
+                  ) : geometry?.points?.length ? (
+                    <div className="space-y-1">
+                      <RouteMapPreview points={geometry.points} legs={geometry.legs} />
+                      <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
+                        <span>Distância pelo traçado: <b className="text-foreground">{geometry.total_km} km</b></span>
+                        <span>Tempo estimado: <b className="text-foreground">{Math.floor(geometry.total_min / 60)}h{String(geometry.total_min % 60).padStart(2, "0")}</b></span>
+                        {geometry.approximate && <span className="text-amber-600">Algum trecho usou linha reta (serviço de rotas indisponível no momento).</span>}
+                        {geometry.missing_coords?.length > 0 && (
+                          <span className="text-amber-600">{geometry.missing_coords.length} parada(s) sem coordenada, não aparecem no mapa.</span>
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-muted-foreground text-center py-8">Nenhuma parada com coordenada pra desenhar o mapa.</p>
+                  )
+                )}
 
                 {routeEditable && (
                   <div className="flex items-center justify-between">

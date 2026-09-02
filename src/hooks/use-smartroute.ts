@@ -121,6 +121,9 @@ export function useSRRoutes(filters?: { date?: string; status?: string }) {
 export function useSRRoute(id?: string) {
   return useQuery<any>({ queryKey: ['sr-route', id], queryFn: () => api(`${BASE}/routes/${id}`), enabled: !!id });
 }
+export function useSRRouteGeometry(id?: string, enabled = false) {
+  return useQuery<any>({ queryKey: ['sr-route-geometry', id], queryFn: () => api(`${BASE}/routes/${id}/geometry`), enabled: !!id && enabled });
+}
 export function useSRSaveRoute() {
   const qc = useQueryClient();
   return useMutation({

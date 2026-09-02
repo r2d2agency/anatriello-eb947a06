@@ -1157,6 +1157,53 @@ router.delete('/routes/:id/stops/:stopId', async (req, res) => {
   } catch (e) { logError('smartroute.removeStop', e); res.status(500).json({ error: e.message }); }
 });
 
+// Traçado real (ruas) da rota, ponto a ponto, pra pré-visualizar antes de sair pra entrega
+// (não depende de a rota já ter sido rodada — diferente do /replay, que usa GPS real).
+router.get('/routes/:id/geometry', async (req, res) => {
+  try {
+    const org = orgId(req);
+    const route = await query(`SELECT id, depot_lat, depot_lng FROM smartroute_routes WHERE id=$1 AND organization_id=$2`, [req.params.id, org]);
+    if (!route.rows[0]) return res.status(404).json({ error: 'Rota não encontrada' });
+    const r = route.rows[0];
+
+    const stopsRes = await query(
+      `SELECT s.sequence, p.name AS pdv_name, p.lat, p.lng
+       FROM smartroute_route_stops s LEFT JOIN smartroute_pdvs p ON p.id=s.pdv_id
+       WHERE s.route_id=$1 ORDER BY s.sequence`,
+      [req.params.id]
+    );
+
+    const points = [];
+    if (hasCoord({ lat: r.depot_lat, lng: r.depot_lng })) {
+      points.push({ lat: toCoord(r.depot_lat), lng: toCoord(r.depot_lng), label: 'CD', is_depot: true });
+    }
+    const withoutCoord = [];
+    for (const s of stopsRes.rows) {
+      if (hasCoord(s)) points.push({ lat: toCoord(s.lat), lng: toCoord(s.lng), sequence: s.sequence, pdv_name: s.pdv_name });
+      else withoutCoord.push({ sequence: s.sequence, pdv_name: s.pdv_name });
+    }
+
+    const legPromises = [];
+    for (let i = 0; i < points.length - 1; i++) legPromises.push(fetchOsrmLeg(points[i], points[i + 1]));
+    const legResults = await Promise.all(legPromises);
+
+    let total_km = 0, total_min = 0, any_fallback = false;
+    const legs = legResults.map((l) => {
+      total_km += l.leg.km; total_min += l.leg.min;
+      if (l.leg.fallback) any_fallback = true;
+      return l.geometry;
+    });
+
+    res.json({
+      points, legs,
+      total_km: Math.round(total_km * 10) / 10,
+      total_min: Math.round(total_min),
+      missing_coords: withoutCoord,
+      approximate: any_fallback,
+    });
+  } catch (e) { logError('smartroute.routeGeometry', e); res.status(500).json({ error: e.message }); }
+});
+
 // Route events (timeline)
 router.get('/routes/:id/events', async (req, res) => {
   try {
