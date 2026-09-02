@@ -1869,7 +1869,8 @@ router.get('/dashboard-stats', async (req, res) => {
       const lateBy = actualMin - expectedMin;
       if (lateBy > 0) {
         lateArrivals.push({
-          id: emp.id, employee_id: emp.id, full_name: emp.full_name, work_schedule: emp.work_schedule,
+          id: emp.id, employee_id: emp.id, full_name: emp.full_name,
+          schedule_label: schedule.entries.map((en) => `${en.start}-${en.end}`).join(', '),
           entry1: actualTime, expected_time: schedule.entries[0].start,
           late_minutes: lateBy,
           severity: lateBy > lateTolerance ? 'red' : 'yellow',

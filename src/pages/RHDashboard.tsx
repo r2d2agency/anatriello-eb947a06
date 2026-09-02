@@ -350,7 +350,7 @@ export default function RHDashboard() {
                         <div key={r.id} className="flex items-center justify-between p-2 rounded bg-orange-50 dark:bg-orange-950/20">
                           <div>
                             <p className="text-sm font-medium">{r.full_name}</p>
-                            <p className="text-xs text-muted-foreground">Jornada: {r.work_schedule}</p>
+                            <p className="text-xs text-muted-foreground">Previsto {r.expected_time} • {r.late_minutes} min de atraso</p>
                           </div>
                           <Badge variant="outline" className="text-orange-600 border-orange-300">{r.entry1}</Badge>
                         </div>

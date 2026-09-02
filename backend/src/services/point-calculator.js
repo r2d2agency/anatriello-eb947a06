@@ -66,6 +66,19 @@ export function parseWorkSchedule(raw, dow, dateStr) {
     }
   }
 
+  // Caso 0: jornada individual do colaborador (tela RH > Colaboradores),
+  // formato { days: {seg,ter,...}, entry, exit, lunch_start, lunch_end, per_day_enabled, per_day }
+  if (obj && typeof obj === 'object' && !Array.isArray(obj) && obj.days && typeof obj.days === 'object') {
+    const dayKey = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sab'][dow];
+    if (!obj.days[dayKey]) return { entries: [], expectedMin: 0, hasSchedule: false, isDayOff: true };
+    const t = (obj.per_day_enabled && obj.per_day && obj.per_day[dayKey]) ? obj.per_day[dayKey] : obj;
+    if (!t.entry || !t.exit) return { entries: [], expectedMin: 0, hasSchedule: false, isDayOff: true };
+    const hasLunch = t.lunch_start && t.lunch_end && t.lunch_start !== t.lunch_end
+      && !(t.lunch_start === '00:00' && t.lunch_end === '00:00');
+    const str = hasLunch ? `${t.entry}-${t.lunch_start},${t.lunch_end}-${t.exit}` : `${t.entry}-${t.exit}`;
+    return parseScheduleString(str);
+  }
+
   // Caso 1: objeto de work_schedule vindo do banco
   if (obj && typeof obj === 'object' && !Array.isArray(obj) && (obj.schedule_json || obj.kind)) {
     // Escala rotativa (6x1, 12x36, etc)
