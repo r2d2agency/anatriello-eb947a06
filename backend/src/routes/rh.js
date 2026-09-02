@@ -2799,6 +2799,40 @@ router.get('/facial-recognition/employees', async (req, res) => {
   }
 });
 
+// List employees for whom facial verification was explicitly disabled.
+// This feeds the warning card on the RH dashboard.
+router.get('/facial-recognition/disabled-alerts', async (req, res) => {
+  try {
+    await ensureFaceEnrollColumn();
+    if (!(await tableExists('employees'))) return res.json([]);
+
+    const orgId = req.query.org_id || await safeGetUserOrgId(req.userId);
+    if (!orgId) return res.json([]);
+
+    const cols = await getEmployeeColumns();
+    if (!cols.has('facial_required')) return res.json([]);
+
+    const positionSql = employeeColumnSql(cols, 'position');
+    const updatedAtSql = employeeColumnSql(cols, 'updated_at');
+    const statusFilter = cols.has('status') ? ` AND ${LISTABLE_EMPLOYEE_STATUS_SQL}` : '';
+    const result = await query(
+      `SELECT e.id, e.full_name,
+              ${positionSql} AS position,
+              ${updatedAtSql} AS updated_at
+         FROM employees e
+        WHERE e.organization_id = $1
+          AND e.facial_required = false${statusFilter}
+        ORDER BY ${updatedAtSql} DESC NULLS LAST, e.full_name`,
+      [orgId]
+    );
+
+    res.json(result.rows);
+  } catch (err) {
+    logError('rh.facial.disabled-alerts', err);
+    res.status(500).json({ error: 'Erro ao carregar alertas de reconhecimento facial' });
+  }
+});
+
 // RH requests a new facial collection from the employee (unlocks self-enroll in app)
 router.post('/facial-recognition/request-collection/:employeeId', async (req, res) => {
   try {
@@ -2821,8 +2855,10 @@ router.put('/facial-recognition/toggle-verification/:employeeId', async (req, re
     await ensureFaceEnrollColumn();
     if (!(await tableExists('employees'))) return res.status(404).json({ error: 'Colaboradores não encontrados' });
     const enabled = req.body?.enabled !== false;
+    const cols = await getEmployeeColumns();
+    const updatedAtSql = cols.has('updated_at') ? ', updated_at = NOW()' : '';
     await query(
-      `UPDATE employees SET facial_required = $1 WHERE id = $2`,
+      `UPDATE employees SET facial_required = $1${updatedAtSql} WHERE id = $2`,
       [enabled, req.params.employeeId]
     );
     res.json({ success: true, enabled });
