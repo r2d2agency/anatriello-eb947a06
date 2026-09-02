@@ -559,8 +559,8 @@ export default function ColaboradorHome() {
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-semibold text-slate-800 truncate">{a.label}</p>
                       <p className="text-xs text-slate-500">
-                        {format(new Date(a.date), "dd/MM/yyyy", { locale: ptBR })}
-                        {a.end_date ? ` — ${format(new Date(a.end_date), "dd/MM/yyyy", { locale: ptBR })}` : ""}
+                        {safeDateBR(a.date)}
+                        {a.end_date ? ` — ${safeDateBR(a.end_date)}` : ""}
                       </p>
                     </div>
                     <span className={cn(
@@ -591,7 +591,7 @@ export default function ColaboradorHome() {
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-semibold truncate">{a.title}</p>
                   <p className="text-xs text-slate-500 truncate">{a.body}</p>
-                  <p className="text-[10px] text-slate-400 mt-0.5">{format(new Date(a.published_at), "dd/MM 'às' HH:mm")}</p>
+                  <p className="text-[10px] text-slate-400 mt-0.5">{safeDateTimeBR(a.published_at)}</p>
                 </div>
               </div>
             ))}

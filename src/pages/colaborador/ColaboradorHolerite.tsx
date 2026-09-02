@@ -41,7 +41,7 @@ export default function ColaboradorHolerite() {
                 <div className="flex-1">
                   <p className="text-sm font-bold">{mesLabel === "—" ? p.reference_month : `${mesLabel}/${y}`}</p>
                   <p className="text-sm font-semibold text-slate-800">R$ {Number(p.net_salary || p.gross_salary || 0).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}</p>
-                  {p.payment_date && (
+                  {p.payment_date && !Number.isNaN(new Date(p.payment_date).getTime()) && (
                     <p className="text-[10px] text-slate-400">Pago em {format(new Date(p.payment_date), "dd/MM/yyyy")}</p>
                   )}
                 </div>
