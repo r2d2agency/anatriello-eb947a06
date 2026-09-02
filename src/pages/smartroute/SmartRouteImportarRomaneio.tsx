@@ -14,7 +14,7 @@ import { toast } from "sonner";
 import { useSRParseRomaneio, useSRCommitRomaneio, useSRDrivers, useSRVehicles, useSRPdvs } from "@/hooks/use-smartroute";
 import { useSRDepots } from "@/hooks/use-smartroute-depots";
 
-type MatchType = "code" | "name_guess" | "none";
+type MatchType = "code" | "name_guess" | "none" | "duplicate_in_batch";
 
 interface ParsedStop {
   seq: number;
@@ -32,12 +32,14 @@ interface ParsedStop {
   matched_pdv_id: string | null;
   matched_pdv_name: string | null;
   match_type: MatchType;
+  duplicate_of_seq?: number;
 }
 
 const MATCH_BADGE: Record<MatchType, { label: string; hint: string; variant: "default" | "secondary" | "destructive"; icon: any }> = {
   code: { label: "Cliente já cadastrado", hint: "Reconhecido automaticamente pelo código — conectado ao PDV existente.", variant: "default", icon: CheckCircle2 },
   name_guess: { label: "Sugestão por nome — confira", hint: "Nome parecido com um PDV existente, mas o código não bateu. Confirme ou troque abaixo.", variant: "secondary", icon: HelpCircle },
   none: { label: "Cliente novo", hint: "Será cadastrado automaticamente com os dados deste romaneio. Nas próximas importações, esse código já conecta sozinho.", variant: "destructive", icon: AlertTriangle },
+  duplicate_in_batch: { label: "Mesmo cliente, outra parada", hint: "Esse código já aparece em outra parada deste romaneio — vai usar o mesmo PDV, criado só uma vez.", variant: "secondary", icon: CheckCircle2 },
 };
 
 export default function SmartRouteImportarRomaneio() {
@@ -94,7 +96,7 @@ export default function SmartRouteImportarRomaneio() {
 
   const totals = useMemo(() => {
     const value = stops.reduce((s, st) => s + (st.value_total || 0), 0);
-    const unmatched = stops.filter((s) => !s.matched_pdv_id).length;
+    const unmatched = stops.filter((s) => !s.matched_pdv_id && s.match_type !== "duplicate_in_batch").length;
     return { value, unmatched, count: stops.length };
   }, [stops]);
 
@@ -295,7 +297,11 @@ export default function SmartRouteImportarRomaneio() {
                             <div className="flex items-center gap-2">
                               <Badge variant={badge.variant} className="text-[10px] gap-1"><Icon className="w-3 h-3" />{badge.label}</Badge>
                             </div>
-                            <p className="text-[10px] text-muted-foreground mt-0.5 max-w-56">{badge.hint}</p>
+                            <p className="text-[10px] text-muted-foreground mt-0.5 max-w-56">
+                              {s.match_type === "duplicate_in_batch" && s.duplicate_of_seq
+                                ? `Mesmo código da parada Seq ${s.duplicate_of_seq} — vai usar o mesmo PDV, criado só uma vez.`
+                                : badge.hint}
+                            </p>
                             <Select value={s.matched_pdv_id || "__new__"} onValueChange={(v) => updateStopPdv(s.seq, v)}>
                               <SelectTrigger className="h-7 text-xs mt-1 w-56"><SelectValue /></SelectTrigger>
                               <SelectContent>

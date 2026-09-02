@@ -2810,6 +2810,10 @@ router.post('/romaneio/parse', romaneioUpload.single('file'), async (req, res) =
     }
     const allPdvs = await query(`SELECT id, name FROM smartroute_pdvs WHERE organization_id=$1 AND active=true`, [org]);
 
+    // Um mesmo código de cliente pode se repetir em mais de uma parada do próprio
+    // romaneio (ex: duas compras no mesmo dia). Sinaliza a repetição pra não parecer
+    // que são dois clientes novos diferentes — todas usarão o mesmo PDV no commit.
+    const seenNewCodeAtSeq = new Map();
     const stopsWithMatch = parsed.stops.map((stop) => {
       const byCode = pdvByCode.get(stop.client_code);
       if (byCode) return { ...stop, matched_pdv_id: byCode.id, matched_pdv_name: byCode.name, match_type: 'code' };
@@ -2818,6 +2822,10 @@ router.post('/romaneio/parse', romaneioUpload.single('file'), async (req, res) =
       const byName = nameKey ? allPdvs.rows.find((p) => p.name && p.name.toLowerCase().includes(nameKey)) : null;
       if (byName) return { ...stop, matched_pdv_id: byName.id, matched_pdv_name: byName.name, match_type: 'name_guess' };
 
+      if (stop.client_code && seenNewCodeAtSeq.has(stop.client_code)) {
+        return { ...stop, matched_pdv_id: null, matched_pdv_name: null, match_type: 'duplicate_in_batch', duplicate_of_seq: seenNewCodeAtSeq.get(stop.client_code) };
+      }
+      if (stop.client_code) seenNewCodeAtSeq.set(stop.client_code, stop.seq);
       return { ...stop, matched_pdv_id: null, matched_pdv_name: null, match_type: 'none' };
     });
 
@@ -2872,9 +2880,18 @@ router.post('/romaneio/commit', async (req, res) => {
 
     const sortedStops = [...b.stops].sort((a, c) => (a.seq || 0) - (c.seq || 0));
     let stopCount = 0;
+    // Um mesmo cliente pode aparecer em mais de uma parada do romaneio (compras
+    // separadas no mesmo dia). Se ainda não existe PDV pra ele, cria só uma vez
+    // e reaproveita nas paradas seguintes, senão a 2ª tentativa de INSERT bate
+    // na constraint única de erp_code.
+    const newPdvIdByCode = new Map();
 
     for (const stop of sortedStops) {
       let pdvId = stop.pdv_id || null;
+
+      if (!pdvId && stop.client_code && newPdvIdByCode.has(stop.client_code)) {
+        pdvId = newPdvIdByCode.get(stop.client_code);
+      }
 
       if (!pdvId) {
         let lat = null, lng = null;
@@ -2883,12 +2900,24 @@ router.post('/romaneio/commit', async (req, res) => {
           if (g) { lat = g.lat; lng = g.lng; }
         } catch {}
 
-        const pdvRes = await client.query(
-          `INSERT INTO smartroute_pdvs (organization_id, name, address, city, state, lat, lng, contact_phone, erp_code, active)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,true) RETURNING id`,
-          [org, stop.fantasy_name || stop.client_name, stop.address_raw || null, stop.city || null, stop.state || null, lat, lng, stop.phone || null, stop.client_code || null]
-        );
-        pdvId = pdvRes.rows[0].id;
+        try {
+          const pdvRes = await client.query(
+            `INSERT INTO smartroute_pdvs (organization_id, name, address, city, state, lat, lng, contact_phone, erp_code, active)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,true) RETURNING id`,
+            [org, stop.fantasy_name || stop.client_name, stop.address_raw || null, stop.city || null, stop.state || null, lat, lng, stop.phone || null, stop.client_code || null]
+          );
+          pdvId = pdvRes.rows[0].id;
+        } catch (err) {
+          // Corrida com outra importação/aba criando o mesmo código ao mesmo tempo.
+          if (err.code === '23505' && stop.client_code) {
+            const existing = await client.query(`SELECT id FROM smartroute_pdvs WHERE organization_id=$1 AND erp_code=$2`, [org, stop.client_code]);
+            if (!existing.rows[0]) throw err;
+            pdvId = existing.rows[0].id;
+          } else {
+            throw err;
+          }
+        }
+        if (stop.client_code) newPdvIdByCode.set(stop.client_code, pdvId);
       }
 
       const orderNotes = `Importado do romaneio ${b.romaneio_number || ''} — Cliente ${stop.client_code || ''} (${stop.client_name || ''})`.trim();
