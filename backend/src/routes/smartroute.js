@@ -2608,16 +2608,49 @@ function brDateToISO(s) {
   return `${m[3]}-${m[2]}-${m[1]}`;
 }
 
+// pdf-parse não preserva a ordem visual do layout: rótulos costumam vir DEPOIS do
+// valor (ex: "02873-CARLOS...\nCliente:\n"), e células numéricas adjacentes ficam
+// coladas sem separador (ex: qty "1" + peso "0,000" + valor "60,00" -> "10,00060,00").
+// O peso é sempre gravado como "0,000" neste romaneio, então usamos essa string
+// literal como âncora para separar qty de valor de forma inequívoca.
+function parseProductLine(line) {
+  const unitMatch = line.match(/(FD|UN)$/);
+  if (!unitMatch) return null;
+  const unit = unitMatch[1];
+  const rest = line.slice(0, line.length - unit.length);
+
+  const pesoIdx = rest.indexOf('0,000');
+  if (pesoIdx < 0) return null;
+  const qtyBlock = rest.slice(0, pesoIdx);
+  const qtyDigits = qtyBlock.match(/(\d+)$/);
+  if (!qtyDigits) return null;
+  const description = qtyBlock.slice(0, qtyBlock.length - qtyDigits[1].length).trim();
+  const valorStr = rest.slice(pesoIdx + 5); // "0,000".length === 5
+  if (!/^[\d.]+,\d{2}$/.test(valorStr)) return null;
+
+  return { description, qty: parseInt(qtyDigits[1], 10), weight: 0, total_value: parseBRNumber(valorStr), unit };
+}
+
+function parseSubtotalBlob(line) {
+  if (!line.endsWith('0,000')) return null;
+  const valorStr = line.slice(0, line.length - 5);
+  if (!/^[\d.]+,\d{2}$/.test(valorStr)) return null;
+  return { valor: parseBRNumber(valorStr), peso: 0 };
+}
+
 function parseRomaneioText(rawText) {
   const text = String(rawText || '').replace(/\r/g, '');
 
-  const numTimeMatch = text.match(/(\d{4,10})\s+(\d{2}:\d{2}:\d{2})/);
-  const headerDateMatch = text.match(/ROMANEIO[^\n]*Data:\s*(\d{2}\/\d{2}\/\d{4})/i);
+  // "13:37:42\n0003235\nEntregador:" — hora e número do romaneio vêm juntos, nessa ordem,
+  // logo antes do rótulo "Entregador:" (âncora confiável).
+  const numMatch = text.match(/(\d{2}:\d{2}:\d{2})\s*\n\s*(\d{4,10})\s*\n\s*Entregador:/i);
+  const timeMatch = text.match(/(\d{2}:\d{2}:\d{2})/);
+  const headerDateMatch = text.match(/ROMANEIO[\s\S]*?Data:\s*(\d{2}\/\d{2}\/\d{4})/i);
   const entregadorMatch = text.match(/Entregador:\s*([^\n]+)/i);
   const placaMatch = text.match(/Placa:\s*([^\n]+)/i);
 
-  const romaneio_number = numTimeMatch ? numTimeMatch[1] : null;
-  const romaneio_time = numTimeMatch ? numTimeMatch[2] : null;
+  const romaneio_number = numMatch ? numMatch[2] : null;
+  const romaneio_time = numMatch ? numMatch[1] : (timeMatch ? timeMatch[1] : null);
   const romaneio_date = headerDateMatch ? brDateToISO(headerDateMatch[1]) : null;
   const deliverer_name = entregadorMatch ? entregadorMatch[1].trim() : null;
   const plate = placaMatch ? placaMatch[1].trim().replace(/\s+/g, '') : null;
@@ -2625,63 +2658,95 @@ function parseRomaneioText(rawText) {
   const stops = [];
   const warnings = [];
 
-  const stopRe = /(\d{1,3})\s+(\d{5,9})\s*Venda\s*N[ºo]\s*\n\s*Cliente:\s*(\d+)\s*-\s*(.+?)\s*\n([\s\S]*?)SubTotal\s*=>\s*([\d.,]+)\s+([\d.,]+)/g;
-  let match;
-  while ((match = stopRe.exec(text))) {
-    const [, seqRaw, vendaNumber, clientCode, clientNameRaw, body, pesoRaw, valorRaw] = match;
-    const clientName = clientNameRaw.trim();
-    const bodyLines = body.split('\n').map((l) => l.trim()).filter(Boolean);
+  // Cada parada é precedida por esse cabeçalho de coluna fixo — usamos como delimitador.
+  const DELIM = /Endere[cç]o de Entrega\s*\n\s*Seq:\s*\n\s*Endere[cç]o de Faturamento\s*\n/gi;
+  const parts = text.split(DELIM);
 
-    const fantasiaMatch = body.match(/Fantasia:\s*([^\n]+)/i);
-    const dataVendedorMatch = body.match(/Data:\s*(\d{2}\/\d{2}\/\d{4})\s*Vendedor:\s*([^\n]+)/i);
-    const cityStateMatch = body.match(/\/\s*(.+?)\s*\/\s*([A-Z]{2})\s*$/m);
+  // Um quebra de página no meio de uma parada reinsere o cabeçalho da página seguinte
+  // (nome da empresa, "Página: N", hora, motorista/placa) no meio do bloco — filtramos isso.
+  const HEADER_NOISE = new Set(['ANATRIELLO SUCOS LTDA', 'MEGA ONLINE SOFTWARE', deliverer_name, plate, romaneio_number].filter(Boolean));
+  const isHeaderNoise = (l) =>
+    HEADER_NOISE.has(l) ||
+    /^P[aá]gina:/i.test(l) || /^ROMANEIO/i.test(l) || /^Entregador:$/i.test(l) || /^Placa:$/i.test(l) ||
+    /^Data:\s*\d{2}\/\d{2}\/\d{4}$/i.test(l) || /^\d{2}:\d{2}:\d{2}$/.test(l);
 
-    const phones = [];
-    for (const line of bodyLines) {
-      if (/^\d{8,13}$/.test(line)) phones.push(line);
-      if (phones.length >= 2) break;
-    }
+  for (let i = 1; i < parts.length; i++) {
+    let lines = parts[i].split('\n').map((l) => l.trim()).filter(Boolean);
+    if (!lines.length) continue;
 
-    const addressLines = bodyLines.filter((l) =>
-      !/^Fone:|^Cel\.:|^Data:|^Fantasia:|^Produto\b|^PRD\S+-|^SubTotal/i.test(l) &&
-      !/^\d{8,13}$/.test(l)
-    );
+    const blobMatch = lines[0].match(/^(\d+)$/);
+    if (!blobMatch) { warnings.push(`Bloco ${i}: não consegui identificar Seq/Venda — revise manualmente.`); continue; }
+    const blob = blobMatch[1];
+    // Nº de venda do Mega Online sempre tem 7 dígitos; o resto na frente é o Seq.
+    const vendaNumber = blob.length > 7 ? blob.slice(-7) : blob;
+    const seq = blob.length > 7 ? blob.slice(0, -7) : String(i);
+
+    // Corta no fim da parada (evita pegar o resumo final ou a próxima página).
+    const subtotalIdxRaw = lines.findIndex((l) => /^SubTotal\s*=>/i.test(l));
+    if (subtotalIdxRaw > 0) lines = lines.slice(0, subtotalIdxRaw + 1);
+    lines = lines.filter((l) => !isHeaderNoise(l) && l !== blob);
+
+    const clientLine = lines.find((l) => /^\d+-.+/.test(l));
+    const clientMatch = clientLine ? clientLine.match(/^(\d+)-(.+)$/) : null;
+
+    const fantasiaIdx = lines.findIndex((l) => /^Fantasia:$/i.test(l));
+    const fantasyName = fantasiaIdx >= 0 && lines[fantasiaIdx + 1] ? lines[fantasiaIdx + 1] : null;
+
+    const dateLine = lines.find((l) => /^\d{2}\/\d{2}\/\d{4}$/.test(l));
+    const deliveryDate = dateLine ? brDateToISO(dateLine) : romaneio_date;
+
+    const vendedorIdx = lines.findIndex((l) => /Vendedor:.*Data:|Data:.*Vendedor:/i.test(l));
+    const salesperson = vendedorIdx >= 0 && lines[vendedorIdx + 1] ? lines[vendedorIdx + 1] : null;
+
+    const cityStateLine = lines.find((l) => /\/(.+)\/([A-Z]{2})$/.test(l));
+    const cityStateMatch = cityStateLine ? cityStateLine.match(/\/(.+)\/([A-Z]{2})$/) : null;
+
+    const phones = lines.filter((l) => /^\d{8,13}$/.test(l)).slice(0, 2);
 
     const products = [];
-    const prodRe = /^(PRD\S+-.+?)\s+(\d+)\s+([\d.,]+)\s+([\d.,]+)\s+(FD|UN)\s*$/;
-    for (const line of bodyLines) {
-      const pm = line.match(prodRe);
-      if (pm) {
-        products.push({
-          description: pm[1].trim(),
-          qty: parseInt(pm[2], 10),
-          weight: parseBRNumber(pm[3]),
-          total_value: parseBRNumber(pm[4]),
-          unit: pm[5],
-        });
-      }
+    for (const line of lines) {
+      if (!/^PRD/i.test(line)) continue;
+      const p = parseProductLine(line);
+      if (p) products.push(p);
     }
 
+    const subIdx2 = lines.findIndex((l) => /^SubTotal\s*=>/i.test(l));
+    const subtotalBlobLine = subIdx2 > 0 ? lines[subIdx2 - 1] : null;
+    let valorTotal = 0;
+    if (subtotalBlobLine) {
+      const parsed = parseSubtotalBlob(subtotalBlobLine);
+      if (parsed) valorTotal = parsed.valor;
+    }
+    if (!valorTotal && products.length) valorTotal = products.reduce((s, p) => s + p.total_value, 0);
+
+    const isNoise = (l) =>
+      l === clientLine || l === dateLine || l === cityStateLine ||
+      l === fantasyName || l === salesperson || l === subtotalBlobLine ||
+      phones.includes(l) ||
+      /^(Cliente:|Fone:|Cel\.:|Venda\s*N[ºo]|Fantasia:|Vendedor:.*Data:|Data:.*Vendedor:|Produto.*Un\.?$|SubTotal\s*=>|PRD\S+)/i.test(l);
+
+    const addressLines = lines.filter((l) => !isNoise(l));
+
     const stop = {
-      seq: parseInt(seqRaw, 10),
+      seq: parseInt(seq, 10) || i,
       venda_number: vendaNumber,
-      client_code: clientCode,
-      client_name: clientName,
-      fantasy_name: fantasiaMatch ? fantasiaMatch[1].trim() : null,
-      delivery_date: dataVendedorMatch ? brDateToISO(dataVendedorMatch[1]) : romaneio_date,
-      salesperson: dataVendedorMatch ? dataVendedorMatch[2].trim() : null,
+      client_code: clientMatch ? clientMatch[1] : null,
+      client_name: clientMatch ? clientMatch[2].trim() : null,
+      fantasy_name: fantasyName,
+      delivery_date: deliveryDate,
+      salesperson,
       phone: phones[0] || null,
       phone2: phones[1] || null,
       address_raw: addressLines.join(', '),
       city: cityStateMatch ? cityStateMatch[1].trim() : null,
       state: cityStateMatch ? cityStateMatch[2].trim() : null,
       products,
-      weight_total: parseBRNumber(pesoRaw),
-      value_total: parseBRNumber(valorRaw),
+      weight_total: 0,
+      value_total: valorTotal,
     };
 
-    if (!stop.value_total || !products.length) {
-      warnings.push(`Parada Seq ${stop.seq} (cliente ${stop.client_code}): dados possivelmente incompletos, revise antes de importar.`);
+    if (!stop.client_code || !products.length) {
+      warnings.push(`Parada Seq ${stop.seq} (cliente ${stop.client_code || '?'}): dados possivelmente incompletos, revise antes de importar.`);
     }
     stops.push(stop);
   }
