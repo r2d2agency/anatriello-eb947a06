@@ -1,73 +1,35 @@
-# Welcome to your Lovable project
+# Anatriello
 
-## Project info
+tenho uma vps em easypanel, e preciso de um sistema de envio de mensagens em lote vamos usar a evolution para conexao, preciso de uma frontend web para gestao, e vamos carregar listas de contatos em planilhas, nome, e telefone. 
+entao vamos ter - 1 conexao, 
+2 - Listas de contatos, 
+3 - Mensagens
+4 - data e hora que vai começar o envio, preciso que o envio seja programado e enviado com o tempo de espera entre uma mensagem e outra, ex. quero que envi as mensagens de modo aleatorio entre as 08 da manha ate as 18h em 2 dias . toda as dtas vao ser selecionadas. assim que selecionar o tempo de desparo, pausa aleatoria de 10 min. por exemplo pra noa perder o whatsapp, ai sim começa ou agenda o disparo. 
+que pode ser acomanhada uma por uma. 
 
-**URL**: https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID
+na mensagem quero poder ter uma variavel tipo {{nome}} e ele puxar o nome da pessoa que esta na lista e enviar 1 mensagem para cada pessoa. personalizada. 
 
-## How can I edit this code?
+quero poder visualizar a criação da mensagem que pode ter, Texto, imagem, videos, audios que serao previamente enviados. carregados. 
 
-There are several ways of editing your application.
+o sistema rodara tambem numa base em postgresql na vps da easypanel.
 
-**Use Lovable**
+This project was built with [Lovable](https://lovable.dev).
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and start prompting.
+## Build with Lovable
 
-Changes made via Lovable will be committed automatically to this repo.
+Continue developing this project in the [Lovable editor](https://lovable.dev/projects/db7922e6-608f-4e33-888b-c9c28c5517ea).
 
-**Use your preferred IDE**
+- **Ship faster**: describe what you want to build and Lovable handles the code.
+- **Stay in sync**: every change made in Lovable is committed straight to this repository.
+- **Full ownership**: this code is yours. Push to `main` on GitHub and your changes sync back into Lovable, ready for your next prompt.
 
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
+## Development
 
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
-
-Follow these steps:
+Prefer working locally? You need Node.js and npm — [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating).
 
 ```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
-
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
-
-# Step 3: Install the necessary dependencies.
+git clone <this-repository-url>
+cd <repository-name>
 npm i
-
-# Step 4: Start the development server with auto-reloading and an instant preview.
 npm run dev
 ```
-
-**Edit a file directly in GitHub**
-
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
-
-**Use GitHub Codespaces**
-
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
-
-## What technologies are used for this project?
-
-This project is built with:
-
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
-
-## How can I deploy this project?
-
-Simply open [Lovable](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and click on Share -> Publish.
-
-## Can I connect a custom domain to my Lovable project?
-
-Yes, you can!
-
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
-
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
