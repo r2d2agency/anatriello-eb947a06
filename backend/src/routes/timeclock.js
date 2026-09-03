@@ -12,6 +12,13 @@ import { recalcEmployeePeriod, parseWorkSchedule } from '../services/point-calcu
 const router = express.Router();
 router.use(authenticate);
 
+// Data (YYYY-MM-DD) e hora (HH:MM) de um instante, no fuso de São Paulo —
+// independe do fuso configurado no servidor (produção roda em UTC).
+const toSPDateStr = (dateOrString) =>
+  new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date(dateOrString));
+const toSPTimeStr = (dateOrString) =>
+  new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(dateOrString));
+
 async function resolveOrgId(req) {
   if (req.query.org_id) return req.query.org_id;
   if (req.body?.organization_id) return req.body.organization_id;
@@ -708,7 +715,7 @@ router.get('/cartao-ponto', async (req, res) => {
         ).catch(() => ({ rows: [] }));
         const byDate = new Map();
         for (const p of punchRes.rows) {
-          const d = new Date(p.punched_at).toISOString().slice(0, 10);
+          const d = toSPDateStr(p.punched_at);
           if (!byDate.has(d)) byDate.set(d, []);
           byDate.get(d).push(p);
         }
@@ -765,7 +772,7 @@ router.put('/cartao-ponto', async (req, res) => {
       `SELECT id, punched_at FROM time_punches WHERE employee_id = $1 AND (punched_at AT TIME ZONE 'America/Sao_Paulo')::date = $2::date ORDER BY punched_at`,
       [employee_id, date]
     );
-    const oldTimes = current.rows.map(r => new Date(r.punched_at).toISOString().slice(11, 16));
+    const oldTimes = current.rows.map(r => toSPTimeStr(r.punched_at));
 
     // Estratégia: apagar e recriar como source='manual'
     if (current.rows.length) {

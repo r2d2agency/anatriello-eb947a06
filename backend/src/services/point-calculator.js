@@ -22,13 +22,23 @@ const fromMin = (mins) => {
   return `${sign}${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 };
 
+const TIMEZONE = 'America/Sao_Paulo';
+
+// Formata um instante (Date/timestamptz) no horário de São Paulo, independente
+// do fuso horário configurado no servidor (que roda em UTC em produção).
 const toHHMMSS = (dateOrString) => {
   if (!dateOrString) return null;
   if (typeof dateOrString === 'string' && /^\d{2}:\d{2}/.test(dateOrString)) return dateOrString.slice(0, 5);
   try {
     const d = dateOrString instanceof Date ? dateOrString : new Date(dateOrString);
-    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+    return new Intl.DateTimeFormat('pt-BR', { timeZone: TIMEZONE, hour: '2-digit', minute: '2-digit', hour12: false }).format(d);
   } catch { return null; }
+};
+
+// Data (YYYY-MM-DD) de um instante, no calendário de São Paulo.
+const toSPDateStr = (dateOrString) => {
+  const d = dateOrString instanceof Date ? dateOrString : new Date(dateOrString);
+  return new Intl.DateTimeFormat('en-CA', { timeZone: TIMEZONE }).format(d);
 };
 
 // Constantes hora noturna (22h → 5h)
@@ -337,7 +347,7 @@ export async function recalcEmployeePeriod({ organizationId, employeeId, startDa
   const punchRes = await query(
     `SELECT id, punch_type, punched_at, geo_status, is_offline
      FROM time_punches
-     WHERE employee_id = $1 AND punched_at::date BETWEEN $2 AND $3
+     WHERE employee_id = $1 AND (punched_at AT TIME ZONE 'America/Sao_Paulo')::date BETWEEN $2 AND $3
      ORDER BY punched_at`,
     [employeeId, startDate, endDate]
   ).catch(() => ({ rows: [] }));
@@ -345,7 +355,7 @@ export async function recalcEmployeePeriod({ organizationId, employeeId, startDa
 
   const byDate = new Map();
   for (const p of punchRes.rows) {
-    const d = new Date(p.punched_at).toISOString().slice(0, 10);
+    const d = toSPDateStr(p.punched_at);
     if (!byDate.has(d)) byDate.set(d, []);
     byDate.get(d).push(p);
   }

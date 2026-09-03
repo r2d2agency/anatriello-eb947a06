@@ -24,7 +24,7 @@ export function buildSignatureHash(punch, employee) {
 
 export async function ensurePunchSignature(punchId) {
   const r = await query(
-    `SELECT tp.*, e.cpf, e.name AS employee_name, e.pis, o.name AS org_name
+    `SELECT tp.*, e.cpf, e.full_name AS employee_name, e.pis_pasep AS pis, o.name AS org_name
      FROM time_punches tp
      JOIN employees e ON e.id = tp.employee_id
      LEFT JOIN organizations o ON o.id = tp.organization_id
@@ -68,9 +68,13 @@ export async function generateReceiptPDF(punchId) {
   draw(`CPF: ${punch.cpf || '-'}    PIS: ${punch.pis || '-'}`, 20, y); y -= 18;
 
   const dt = new Date(punch.punched_at);
-  const pad = (n) => String(n).padStart(2, '0');
-  const dateStr = `${pad(dt.getDate())}/${pad(dt.getMonth() + 1)}/${dt.getFullYear()}`;
-  const timeStr = `${pad(dt.getHours())}:${pad(dt.getMinutes())}:${pad(dt.getSeconds())}`;
+  const spParts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Sao_Paulo',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+  }).formatToParts(dt).reduce((acc, p) => { acc[p.type] = p.value; return acc; }, {});
+  const dateStr = `${spParts.day}/${spParts.month}/${spParts.year}`;
+  const timeStr = `${spParts.hour}:${spParts.minute}:${spParts.second}`;
 
   draw('Data/Hora da marcação:', 20, y, { bold: true }); y -= 12;
   draw(`${dateStr}  ${timeStr}  (GMT-3)`, 20, y, { size: 12, bold: true }); y -= 20;
@@ -118,7 +122,7 @@ export async function generateMirrorPDF({ organizationId, employeeId, startDate,
     draw('ESPELHO DE PONTO', 40, 810, { bold: true, size: 13 });
     draw(`Período: ${startDate} a ${endDate}`, 40, 795, { size: 9 });
     draw(`Empresa: ${employee.company_name || employee.org_name || '-'}   CNPJ: ${employee.company_cnpj || '-'}`, 40, 782);
-    draw(`Colaborador: ${employee.name}   CPF: ${employee.cpf || '-'}   PIS: ${employee.pis || '-'}`, 40, 770);
+    draw(`Colaborador: ${employee.full_name}   CPF: ${employee.cpf || '-'}   PIS: ${employee.pis_pasep || '-'}`, 40, 770);
     y = 748;
     // Cabeçalho tabela
     const cols = ['Data', 'Dia', 'E1', 'S1', 'E2', 'S2', 'Prev.', 'Trab.', 'Saldo', 'Status'];
@@ -167,7 +171,7 @@ export async function generateMirrorPDF({ organizationId, employeeId, startDate,
   draw('Declaro que os registros acima refletem a jornada efetivamente realizada.', 40, y);
   y -= 30;
   draw('_____________________________________', 40, y);
-  draw(`${employee.name}`, 40, y - 10, { size: 8 });
+  draw(`${employee.full_name}`, 40, y - 10, { size: 8 });
   draw('_____________________________________', 330, y);
   draw('Empregador', 330, y - 10, { size: 8 });
 

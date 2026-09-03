@@ -62,10 +62,12 @@ function fmtMin(min?: number | null) {
 
 // ============ CARTÃO PONTO TAB ============
 function CartaoPontoTab() {
+  const { toast } = useToast();
   const { data: employees = [] } = useEmployees({ status: 'ativo' });
   const [employeeId, setEmployeeId] = useState<string>('');
   const [start, setStart] = useState(() => format(startOfMonth(new Date()), 'yyyy-MM-dd'));
   const [end, setEnd] = useState(() => format(endOfMonth(new Date()), 'yyyy-MM-dd'));
+  const [generatingPdf, setGeneratingPdf] = useState(false);
   const { data, isLoading } = useCartaoPonto({ employee_id: employeeId, start, end });
   const [editDay, setEditDay] = useState<any | null>(null);
   const [auditDay, setAuditDay] = useState<string | null>(null);
@@ -105,19 +107,35 @@ function CartaoPontoTab() {
             </Button>
             <Button
               variant="default"
-              disabled={!employeeId}
+              disabled={!employeeId || generatingPdf}
               onClick={async () => {
-                const token = localStorage.getItem('token');
-                const url = `${(import.meta.env.VITE_API_URL || '').replace(/\/$/, '')}/api/timeclock/mirror.pdf?employee_id=${employeeId}&start=${start}&end=${end}`;
-                const r = await fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
-                if (!r.ok) return;
-                const blob = await r.blob();
-                const o = URL.createObjectURL(blob);
-                const a = document.createElement('a'); a.href = o; a.download = `espelho-${start}_${end}.pdf`; a.click();
-                setTimeout(() => URL.revokeObjectURL(o), 500);
+                setGeneratingPdf(true);
+                try {
+                  const token = localStorage.getItem('token');
+                  const url = `${(import.meta.env.VITE_API_URL || '').replace(/\/$/, '')}/api/timeclock/mirror.pdf?employee_id=${employeeId}&start=${start}&end=${end}`;
+                  const r = await fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+                  if (!r.ok) {
+                    let message = `Erro ao gerar espelho (HTTP ${r.status})`;
+                    try {
+                      const body = await r.json();
+                      if (body?.error) message = body.error;
+                    } catch { /* resposta não era JSON */ }
+                    toast({ title: 'Falha ao gerar Espelho PDF', description: message, variant: 'destructive' });
+                    return;
+                  }
+                  const blob = await r.blob();
+                  const o = URL.createObjectURL(blob);
+                  const a = document.createElement('a'); a.href = o; a.download = `espelho-${start}_${end}.pdf`;
+                  document.body.appendChild(a); a.click(); a.remove();
+                  setTimeout(() => URL.revokeObjectURL(o), 500);
+                } catch (err: any) {
+                  toast({ title: 'Falha ao gerar Espelho PDF', description: err?.message || 'Erro de rede', variant: 'destructive' });
+                } finally {
+                  setGeneratingPdf(false);
+                }
               }}
             >
-              Espelho PDF
+              {generatingPdf ? 'Gerando...' : 'Espelho PDF'}
             </Button>
           </div>
         </CardContent>
