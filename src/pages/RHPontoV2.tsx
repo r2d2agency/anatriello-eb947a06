@@ -21,6 +21,7 @@ import {
   useClosings, useCreateClosing, useDeleteClosing,
 } from '@/hooks/use-timeclock';
 import { useCompanies } from '@/hooks/use-companies';
+import { downloadTimeclockMirrorPdf } from '@/lib/timeclock-mirror-pdf';
 import { WorkSchedulesTab } from '@/components/rh/WorkSchedulesTab';
 import { RegistrosPontoTab } from '@/components/rh/RegistrosPontoTab';
 import { GestaoPontoTab } from '@/components/rh/GestaoPontoTab';
@@ -107,29 +108,19 @@ function CartaoPontoTab() {
             </Button>
             <Button
               variant="default"
-              disabled={!employeeId || generatingPdf}
+              disabled={!employeeId || !data || generatingPdf}
               onClick={async () => {
+                if (!data) return;
                 setGeneratingPdf(true);
                 try {
-                  const token = localStorage.getItem('auth_token');
-                  const url = `${(import.meta.env.VITE_API_URL || '').replace(/\/$/, '')}/api/timeclock/mirror.pdf?employee_id=${employeeId}&start=${start}&end=${end}`;
-                  const r = await fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
-                  if (!r.ok) {
-                    let message = `Erro ao gerar espelho (HTTP ${r.status})`;
-                    try {
-                      const body = await r.json();
-                      if (body?.error) message = body.error;
-                    } catch { /* resposta não era JSON */ }
-                    toast({ title: 'Falha ao gerar Espelho PDF', description: message, variant: 'destructive' });
-                    return;
-                  }
-                  const blob = await r.blob();
-                  const o = URL.createObjectURL(blob);
-                  const a = document.createElement('a'); a.href = o; a.download = `espelho-${start}_${end}.pdf`;
-                  document.body.appendChild(a); a.click(); a.remove();
-                  setTimeout(() => URL.revokeObjectURL(o), 500);
+                  await downloadTimeclockMirrorPdf({
+                    employee: data.employee,
+                    days: data.days,
+                    totals: data.totals,
+                    periodLabel: `${safeFmt(start, 'dd/MM/yyyy')} a ${safeFmt(end, 'dd/MM/yyyy')}`,
+                  }, `espelho-${start}_${end}.pdf`);
                 } catch (err: any) {
-                  toast({ title: 'Falha ao gerar Espelho PDF', description: err?.message || 'Erro de rede', variant: 'destructive' });
+                  toast({ title: 'Falha ao gerar Espelho PDF', description: err?.message || 'Erro ao montar o PDF', variant: 'destructive' });
                 } finally {
                   setGeneratingPdf(false);
                 }

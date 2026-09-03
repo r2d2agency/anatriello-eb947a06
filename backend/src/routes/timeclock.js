@@ -668,7 +668,7 @@ router.get('/cartao-ponto', async (req, res) => {
     let empRow = null;
     try {
       const emp = await query(
-        `SELECT e.id, e.full_name, e.cpf, e.registration_number, e.work_schedule, e.work_schedule_id, e.company_id,
+        `SELECT e.id, e.full_name, e.cpf, e.pis_pasep, e.registration_number, e.work_schedule, e.work_schedule_id, e.company_id,
                 c.trade_name AS company_name, c.cnpj AS company_cnpj,
                 d.name AS department_name, e.position
          FROM employees e
@@ -682,7 +682,7 @@ router.get('/cartao-ponto', async (req, res) => {
       // fallback sem join em rh_departments (tabela pode não existir)
       try {
         const emp2 = await query(
-          `SELECT e.id, e.full_name, e.cpf, e.registration_number, e.work_schedule, e.work_schedule_id, e.company_id,
+          `SELECT e.id, e.full_name, e.cpf, e.pis_pasep, e.registration_number, e.work_schedule, e.work_schedule_id, e.company_id,
                   c.trade_name AS company_name, c.cnpj AS company_cnpj,
                   NULL::text AS department_name, e.position
            FROM employees e
