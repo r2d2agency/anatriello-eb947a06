@@ -111,7 +111,7 @@ function CartaoPontoTab() {
               onClick={async () => {
                 setGeneratingPdf(true);
                 try {
-                  const token = localStorage.getItem('token');
+                  const token = localStorage.getItem('auth_token');
                   const url = `${(import.meta.env.VITE_API_URL || '').replace(/\/$/, '')}/api/timeclock/mirror.pdf?employee_id=${employeeId}&start=${start}&end=${end}`;
                   const r = await fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
                   if (!r.ok) {
@@ -969,7 +969,7 @@ function ComplianceTab() {
   const download = async (kind: 'afd' | 'aej') => {
     setLoading(kind);
     try {
-      const token = localStorage.getItem('token');
+      const token = localStorage.getItem('auth_token');
       const base = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
       const qs = new URLSearchParams({ start, end });
       if (companyId !== 'all') qs.set('company_id', companyId);
