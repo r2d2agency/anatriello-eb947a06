@@ -152,7 +152,7 @@ async function buildPaymentSheet(orgId, month, companyId) {
   // Colunas reais do schema: `salary` (não base_salary), sem pix_key.
   // Filtro tolerante: se não houver termination_date, é ativo.
   let empSql = `SELECT id, full_name, cpf, registration_number, position,
-                       COALESCE(salary, 0) AS salary, company_id,
+                       COALESCE(salary, 0) AS salary, COALESCE(benefits, '[]'::jsonb) AS benefits, company_id,
                        bank_account, bank_agency, bank_name, bank_account_type
                 FROM employees
                 WHERE organization_id=$1
@@ -166,7 +166,7 @@ async function buildPaymentSheet(orgId, month, companyId) {
     // Fallback quando alguma coluna opcional não existe
     const fb = await query(
       `SELECT id, full_name, cpf, registration_number, position, company_id,
-              COALESCE(salary, 0) AS salary
+              COALESCE(salary, 0) AS salary, COALESCE(benefits, '[]'::jsonb) AS benefits
        FROM employees WHERE organization_id=$1 ${companyId ? 'AND company_id=$2' : ''}
        ORDER BY full_name`,
       companyId ? [orgId, companyId] : [orgId]
@@ -203,6 +203,8 @@ async function buildPaymentSheet(orgId, month, companyId) {
     const liquido = pay?.net_salary != null
       ? Number(pay.net_salary) + proventos - deducoes
       : bruto - totalDed;
+    const beneficios = (Array.isArray(emp.benefits) ? emp.benefits : [])
+      .reduce((s, b) => s + (Number(b?.value) || 0), 0);
     const isPix = String(emp.bank_account_type || '').toLowerCase() === 'pix';
     return {
       employee_id: emp.id,
@@ -217,6 +219,8 @@ async function buildPaymentSheet(orgId, month, companyId) {
       total_bruto: bruto,
       total_descontos: totalDed,
       liquido_a_pagar: Number(liquido.toFixed(2)),
+      beneficios: Number(beneficios.toFixed(2)),
+      total_geral: Number((liquido + beneficios).toFixed(2)),
       pix: isPix ? (emp.bank_account || '') : '',
       banco: emp.bank_name || '',
       agencia: emp.bank_agency || '',
@@ -234,7 +238,9 @@ async function buildPaymentSheet(orgId, month, companyId) {
     total_bruto: acc.total_bruto + r.total_bruto,
     total_descontos: acc.total_descontos + r.total_descontos,
     liquido_a_pagar: acc.liquido_a_pagar + r.liquido_a_pagar,
-  }), { salario_base:0, proventos_avulsos:0, deducoes_avulsas:0, total_bruto:0, total_descontos:0, liquido_a_pagar:0 });
+    beneficios: acc.beneficios + r.beneficios,
+    total_geral: acc.total_geral + r.total_geral,
+  }), { salario_base:0, proventos_avulsos:0, deducoes_avulsas:0, total_bruto:0, total_descontos:0, liquido_a_pagar:0, beneficios:0, total_geral:0 });
 
   return { month, employees_count: rows.length, rows, totals };
 }
@@ -252,7 +258,7 @@ router.get('/payment-sheet', async (req, res) => {
     if (format === 'json') return res.json(data);
 
     if (format === 'csv') {
-      const header = ['Matricula','CPF','Nome','Cargo','Salario Base','Proventos','Descontos','Total Bruto','Total Descontos','Liquido a Pagar','PIX','Banco','Agencia','Conta'];
+      const header = ['Matricula','CPF','Nome','Cargo','Salario Base','Proventos','Descontos','Total Bruto','Total Descontos','Liquido a Pagar','Beneficios','Total Geral','PIX','Banco','Agencia','Conta'];
       const lines = [header.join(';')];
       for (const r of data.rows) {
         lines.push([
@@ -263,6 +269,8 @@ router.get('/payment-sheet', async (req, res) => {
           r.total_bruto.toFixed(2).replace('.',','),
           r.total_descontos.toFixed(2).replace('.',','),
           r.liquido_a_pagar.toFixed(2).replace('.',','),
+          r.beneficios.toFixed(2).replace('.',','),
+          r.total_geral.toFixed(2).replace('.',','),
           r.pix, r.banco, r.agencia, r.conta,
         ].join(';'));
       }
@@ -273,6 +281,8 @@ router.get('/payment-sheet', async (req, res) => {
         data.totals.total_bruto.toFixed(2).replace('.',','),
         data.totals.total_descontos.toFixed(2).replace('.',','),
         data.totals.liquido_a_pagar.toFixed(2).replace('.',','),
+        data.totals.beneficios.toFixed(2).replace('.',','),
+        data.totals.total_geral.toFixed(2).replace('.',','),
       ].join(';'));
       const csv = '\ufeff' + lines.join('\n');
       res.setHeader('Content-Type', 'text/csv; charset=utf-8');
@@ -291,7 +301,9 @@ router.get('/payment-sheet', async (req, res) => {
           <td class="r">${brl(r.salario_base)}</td>
           <td class="r pos">${brl(r.proventos_avulsos)}</td>
           <td class="r neg">${brl(r.deducoes_avulsas)}</td>
-          <td class="r"><b>${brl(r.liquido_a_pagar)}</b></td>
+          <td class="r">${brl(r.liquido_a_pagar)}</td>
+          <td class="r">${brl(r.beneficios)}</td>
+          <td class="r"><b>${brl(r.total_geral)}</b></td>
           <td>${r.pix||[r.banco,r.agencia,r.conta].filter(Boolean).join(' / ')}</td>
         </tr>`).join('');
       const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">
@@ -318,6 +330,7 @@ router.get('/payment-sheet', async (req, res) => {
             <th>Matr.</th><th>Nome</th><th>CPF</th><th>Cargo</th>
             <th class="r">Sal. Base</th><th class="r">Proventos</th>
             <th class="r">Descontos</th><th class="r">Líquido</th>
+            <th class="r">Benefícios</th><th class="r">Total Geral</th>
             <th>Pagamento</th>
           </tr></thead>
           <tbody>${rowsHtml}</tbody>
@@ -327,6 +340,8 @@ router.get('/payment-sheet', async (req, res) => {
             <td class="r pos">${brl(data.totals.proventos_avulsos)}</td>
             <td class="r neg">${brl(data.totals.deducoes_avulsas)}</td>
             <td class="r">${brl(data.totals.liquido_a_pagar)}</td>
+            <td class="r">${brl(data.totals.beneficios)}</td>
+            <td class="r"><b>${brl(data.totals.total_geral)}</b></td>
             <td></td>
           </tr></tfoot>
         </table></body></html>`;

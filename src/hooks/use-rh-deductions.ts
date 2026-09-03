@@ -59,12 +59,13 @@ export interface PaymentSheetRow {
   matricula: string; nome: string; cpf: string; cargo: string; company_id?: string;
   salario_base: number; proventos_avulsos: number; deducoes_avulsas: number;
   total_bruto: number; total_descontos: number; liquido_a_pagar: number;
+  beneficios: number; total_geral: number;
   pix?: string; banco?: string; agencia?: string; conta?: string;
   lancamentos: Array<{ id: string; kind: string; category: string; description: string; amount: number }>;
 }
 export interface PaymentSheet {
   month: string; employees_count: number; rows: PaymentSheetRow[];
-  totals: { salario_base: number; proventos_avulsos: number; deducoes_avulsas: number; total_bruto: number; total_descontos: number; liquido_a_pagar: number };
+  totals: { salario_base: number; proventos_avulsos: number; deducoes_avulsas: number; total_bruto: number; total_descontos: number; liquido_a_pagar: number; beneficios: number; total_geral: number };
 }
 
 export function usePaymentSheet(params: { month?: string; company_id?: string }) {

@@ -31,7 +31,9 @@ export default function RHFolhaPagamento() {
     prov: a.prov + r.proventos_avulsos,
     ded: a.ded + r.deducoes_avulsas,
     liq: a.liq + r.liquido_a_pagar,
-  }), { base: 0, prov: 0, ded: 0, liq: 0 }), [rows]);
+    ben: a.ben + r.beneficios,
+    geral: a.geral + r.total_geral,
+  }), { base: 0, prov: 0, ded: 0, liq: 0, ben: 0, geral: 0 }), [rows]);
 
   return (
     <MainLayout>
@@ -41,7 +43,7 @@ export default function RHFolhaPagamento() {
             <Receipt className="h-6 w-6 text-primary" /> Folha de Pagamento
           </h1>
           <p className="text-xs text-muted-foreground">
-            Consolidação mensal para envio ao financeiro. Inclui salário base, proventos e deduções avulsas por colaborador.
+            Consolidação mensal para envio ao financeiro. Inclui salário base, proventos, deduções avulsas e benefícios por colaborador.
           </p>
         </div>
 
@@ -100,6 +102,8 @@ export default function RHFolhaPagamento() {
                       <TableHead className="text-right">Proventos</TableHead>
                       <TableHead className="text-right">Descontos</TableHead>
                       <TableHead className="text-right">Líquido a Pagar</TableHead>
+                      <TableHead className="text-right">Benefícios</TableHead>
+                      <TableHead className="text-right">Total Geral</TableHead>
                       <TableHead>Pagamento</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -120,6 +124,10 @@ export default function RHFolhaPagamento() {
                           {r.deducoes_avulsas > 0 ? "− " + brl(r.deducoes_avulsas) : "—"}
                         </TableCell>
                         <TableCell className="text-right tabular-nums font-bold">{brl(r.liquido_a_pagar)}</TableCell>
+                        <TableCell className="text-right tabular-nums text-sky-700">
+                          {r.beneficios > 0 ? brl(r.beneficios) : "—"}
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums font-bold">{brl(r.total_geral)}</TableCell>
                         <TableCell className="text-[10px] text-muted-foreground">
                           {r.pix ? `PIX: ${r.pix}` : [r.banco, r.agencia, r.conta].filter(Boolean).join(" / ") || "—"}
                         </TableCell>
@@ -131,6 +139,8 @@ export default function RHFolhaPagamento() {
                       <TableCell className="text-right tabular-nums text-emerald-700">{brl(totals.prov)}</TableCell>
                       <TableCell className="text-right tabular-nums text-rose-700">{brl(totals.ded)}</TableCell>
                       <TableCell className="text-right tabular-nums">{brl(totals.liq)}</TableCell>
+                      <TableCell className="text-right tabular-nums text-sky-700">{brl(totals.ben)}</TableCell>
+                      <TableCell className="text-right tabular-nums">{brl(totals.geral)}</TableCell>
                       <TableCell></TableCell>
                     </TableRow>
                   </TableBody>
