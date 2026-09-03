@@ -165,7 +165,11 @@ export async function generateMirrorPDF({ organizationId, employeeId, startDate,
 
   y -= 10;
   page.drawLine({ start: { x: 40, y: y + 4 }, end: { x: 555, y: y + 4 }, thickness: 0.5 });
-  const fmt = (m) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+  const fmt = (m) => {
+    const sign = m < 0 ? '-' : '';
+    const abs = Math.abs(Math.round(m));
+    return `${sign}${String(Math.floor(abs / 60)).padStart(2, '0')}:${String(abs % 60).padStart(2, '0')}`;
+  };
   draw(`TOTAIS   Trabalhado: ${fmt(totalWorked)}   Créditos: +${fmt(totalCred)}   Débitos: -${fmt(totalDeb)}   Saldo: ${fmt(totalCred - totalDeb)}`, 40, y - 8, { bold: true, size: 9 });
   y -= 40;
   draw('Declaro que os registros acima refletem a jornada efetivamente realizada.', 40, y);
