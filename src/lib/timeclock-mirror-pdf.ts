@@ -210,11 +210,11 @@ export async function generateTimeclockMirrorPdf(data: MirrorPdfData): Promise<j
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(12);
   setText(doc, INK);
-  doc.text('ANATRIELLO', pageW - margin - 18, margin + 24, { align: 'right' });
+  doc.text('ANATRIELLO', pageW - margin - 18, margin + 14, { align: 'right' });
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(7);
   setText(doc, MUTED);
-  doc.text('F A C I L I T I E S', pageW - margin - 18, margin + 28, { align: 'right' });
+  doc.text('F A C I L I T I E S', pageW - margin - 18, margin + 18, { align: 'right' });
 
   y += 6;
   doc.setFont('helvetica', 'normal');
@@ -257,12 +257,12 @@ export async function generateTimeclockMirrorPdf(data: MirrorPdfData): Promise<j
   };
 
   drawInfoCard(
-    margin, drawBuildingIcon, 'EMPRESA',
+    margin, (cx, cy, r) => drawBuildingIcon(doc, cx, cy, r), 'EMPRESA',
     data.employee.company_name || 'ANATRIELLO FACILITIES LTDA',
     `CNPJ: ${data.employee.company_cnpj || '-'}`
   );
   drawInfoCard(
-    margin + cardW + cardGap, drawPersonIcon, 'COLABORADOR',
+    margin + cardW + cardGap, (cx, cy, r) => drawPersonIcon(doc, cx, cy, r), 'COLABORADOR',
     data.employee.full_name,
     `CPF: ${data.employee.cpf || '-'}   PIS: ${data.employee.pis_pasep || '-'}`
   );
@@ -378,15 +378,18 @@ export async function generateTimeclockMirrorPdf(data: MirrorPdfData): Promise<j
   ];
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(6.6);
-  let lx = margin;
-  legendItems.forEach((item) => {
+  const legendColW = contentW / 2;
+  legendItems.forEach((item, i) => {
+    const col = i % 2;
+    const row = Math.floor(i / 2);
+    const lx = margin + col * legendColW;
+    const ly = y + row * 4.2;
     setFill(doc, item.dot);
-    doc.circle(lx + 1, y - 1, 1, 'F');
+    doc.circle(lx + 1, ly - 1, 1, 'F');
     setText(doc, MUTED);
-    doc.text(item.text, lx + 3.5, y);
-    lx += doc.getTextWidth(item.text) + 12;
+    doc.text(item.text, lx + 3.5, ly);
   });
-  y += 7;
+  y += 4.2 * Math.ceil(legendItems.length / 2) + 3;
 
   // ─── Declaração ───
   setDraw(doc, CARD_BORDER);
