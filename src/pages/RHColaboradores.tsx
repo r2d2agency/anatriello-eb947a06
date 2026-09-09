@@ -15,7 +15,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { Switch } from "@/components/ui/switch";
-import { Plus, Search, UserCircle, Building2, FileText, Edit, Trash2, Eye, EyeOff, Users, Loader2, Calendar, Briefcase, X, MapPin, UserCog, DollarSign, Gift, Smartphone, KeyRound, Copy, RefreshCw, FileSpreadsheet, Bell, History as HistoryIcon } from "lucide-react";
+import { Plus, Search, UserCircle, Building2, FileText, Edit, Trash2, Eye, EyeOff, Users, Loader2, Calendar, Briefcase, X, MapPin, UserCog, DollarSign, Gift, Smartphone, KeyRound, Copy, RefreshCw, FileSpreadsheet, Bell, History as HistoryIcon, AlertTriangle } from "lucide-react";
 import { EmployeeImportExportDialog } from "@/components/rh/EmployeeImportExportDialog";
 import { EmployeeNotificationsDialog } from "@/components/rh/EmployeeNotificationsDialog";
 import { EmployeeHistoryDialog } from "@/components/rh/EmployeeHistoryDialog";
@@ -49,6 +49,14 @@ const BENEFIT_TYPES = [
   "Seguro de Vida", "Auxílio Creche", "Auxílio Educação", "Gympass/Wellhub", "PLR",
   "Cesta Básica", "Auxílio Home Office", "Outro"
 ];
+
+const DEDUCTION_TYPES = [
+  "Vale Transporte (desconto)", "Vale Refeição (desconto)", "Vale Alimentação (desconto)",
+  "Plano de Saúde (desconto)", "Plano Odontológico (desconto)", "Convênio", "Empréstimo Consignado",
+  "Adiantamento Salarial", "Pensão Alimentícia", "Contribuição Sindical", "Outro"
+];
+
+const DRIVER_POSITION_REGEX = /motorista|entregador|driver/i;
 
 const WEEKDAYS = [
   { key: "seg", label: "Seg" },
@@ -117,6 +125,7 @@ const EMPTY_FORM = {
   facial_required: null as boolean | null,
   salary_items: [] as { type: string; description: string; value: string }[],
   benefits: [] as { type: string; description: string; value: string; employer_cost: string }[],
+  deductions: [] as { type: string; description: string; value: string }[],
 };
 
 // ============ CPF Validation ============
@@ -285,6 +294,7 @@ export default function RHColaboradores() {
       work_schedule: parseSchedule(emp.work_schedule),
       salary_items: emp.salary_items || [],
       benefits: emp.benefits || [],
+      deductions: emp.deductions || [],
     });
     setEditId(emp.id);
     setCpfError("");
@@ -350,6 +360,20 @@ export default function RHColaboradores() {
     desligados: allEmployees.filter((e: any) => e.status === "desligado").length,
   };
 
+  // ============ Alerta de vencimento de CNH (motorista/entregador) ============
+  const cnhAlerts = useMemo(() => {
+    const now = new Date();
+    return allEmployees
+      .filter((e: any) => e.status !== "desligado" && e.cnh_expiry && DRIVER_POSITION_REGEX.test(e.position || ""))
+      .map((e: any) => {
+        const expiry = new Date(`${String(e.cnh_expiry).slice(0, 10)}T00:00:00`);
+        const days = Math.ceil((expiry.getTime() - now.getTime()) / 86400000);
+        return { ...e, cnhDays: days };
+      })
+      .filter((e: any) => e.cnhDays <= 30)
+      .sort((a: any, b: any) => a.cnhDays - b.cnhDays);
+  }, [allEmployees]);
+
   return (
     <MainLayout>
       <div className="space-y-4">
@@ -385,6 +409,28 @@ export default function RHColaboradores() {
             </Card>
           ))}
         </div>
+
+        {/* Alerta de vencimento de CNH (motorista/entregador) */}
+        {cnhAlerts.length > 0 && (
+          <Card className="border-orange-300 bg-orange-500/5">
+            <CardContent className="p-4 space-y-2">
+              <h3 className="text-sm font-semibold flex items-center gap-2 text-orange-700">
+                <AlertTriangle className="h-4 w-4" /> CNH vencida ou próxima do vencimento ({cnhAlerts.length})
+              </h3>
+              <div className="space-y-1">
+                {cnhAlerts.map((e: any) => (
+                  <div key={e.id} className="flex items-center justify-between text-sm p-2 rounded-md bg-background border cursor-pointer hover:border-orange-400"
+                    onClick={() => openEdit(e)}>
+                    <span className="font-medium">{e.full_name} <span className="text-xs text-muted-foreground font-normal">({e.position})</span></span>
+                    <Badge variant="outline" className={e.cnhDays < 0 ? "text-red-700 border-red-300 bg-red-500/10" : "text-orange-700 border-orange-300 bg-orange-500/10"}>
+                      {e.cnhDays < 0 ? `Vencida há ${Math.abs(e.cnhDays)} dia(s)` : e.cnhDays === 0 ? "Vence hoje" : `Vence em ${e.cnhDays} dia(s)`}
+                    </Badge>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Filters */}
         <div className="flex flex-col sm:flex-row gap-2">
@@ -1060,11 +1106,77 @@ export default function RHColaboradores() {
                 )}
               </div>
 
+              {/* Descontos Fixos */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-semibold flex items-center gap-2"><Trash2 className="h-4 w-4 text-destructive" /> Descontos</h3>
+                  <Button type="button" variant="outline" size="sm" className="h-7 text-xs gap-1"
+                    onClick={() => setForm((p: any) => ({
+                      ...p,
+                      deductions: [...(p.deductions || []), { type: "Convênio", description: "", value: "" }]
+                    }))}>
+                    <Plus className="h-3 w-3" /> Adicionar Desconto
+                  </Button>
+                </div>
+                {(form.deductions || []).length === 0 && (
+                  <p className="text-xs text-muted-foreground text-center py-4 border rounded-lg border-dashed">Nenhum desconto fixo adicionado</p>
+                )}
+                {(form.deductions || []).map((item: any, idx: number) => (
+                  <div key={idx} className="grid grid-cols-[1fr_1.5fr_auto_auto] gap-2 items-end p-3 rounded-lg bg-muted/30 border">
+                    <div>
+                      <Label className="text-xs">Tipo</Label>
+                      <Select value={item.type} onValueChange={v => {
+                        const items = [...form.deductions];
+                        items[idx] = { ...items[idx], type: v };
+                        setField("deductions", items);
+                      }}>
+                        <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          {DEDUCTION_TYPES.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label className="text-xs">Descrição</Label>
+                      <Input className="h-8 text-xs" placeholder="Detalhes..." value={item.description}
+                        onChange={e => {
+                          const items = [...form.deductions];
+                          items[idx] = { ...items[idx], description: e.target.value };
+                          setField("deductions", items);
+                        }} />
+                    </div>
+                    <div>
+                      <Label className="text-xs">Valor (R$)</Label>
+                      <Input className="h-8 text-xs w-28" type="number" placeholder="0,00" value={item.value}
+                        onChange={e => {
+                          const items = [...form.deductions];
+                          items[idx] = { ...items[idx], value: e.target.value };
+                          setField("deductions", items);
+                        }} />
+                    </div>
+                    <Button type="button" variant="ghost" size="icon" className="h-8 w-8 text-destructive"
+                      onClick={() => {
+                        const items = form.deductions.filter((_: any, i: number) => i !== idx);
+                        setField("deductions", items);
+                      }}>
+                      <Trash2 className="h-3 w-3" />
+                    </Button>
+                  </div>
+                ))}
+                {(form.deductions || []).length > 0 && (
+                  <div className="flex justify-end p-2 rounded-lg bg-destructive/5 border border-destructive/20">
+                    <p className="text-sm font-semibold">Total Descontos: <span className="text-destructive">
+                      R$ {(form.deductions || []).reduce((s: number, i: any) => s + (parseFloat(i.value) || 0), 0).toFixed(2)}
+                    </span></p>
+                  </div>
+                )}
+              </div>
+
               {/* Resumo Geral */}
-              {((form.salary_items || []).length > 0 || (form.benefits || []).length > 0) && (
+              {((form.salary_items || []).length > 0 || (form.benefits || []).length > 0 || (form.deductions || []).length > 0) && (
                 <div className="p-3 rounded-lg bg-primary/10 border border-primary/30 space-y-1">
                   <h4 className="text-sm font-bold text-primary">Resumo da Remuneração</h4>
-                  <div className="grid grid-cols-3 gap-2 text-center">
+                  <div className="grid grid-cols-4 gap-2 text-center">
                     <div>
                       <p className="text-xs text-muted-foreground">Composição Salarial</p>
                       <p className="font-semibold text-sm">R$ {(form.salary_items || []).reduce((s: number, i: any) => s + (parseFloat(i.value) || 0), 0).toFixed(2)}</p>
@@ -1074,10 +1186,15 @@ export default function RHColaboradores() {
                       <p className="font-semibold text-sm">R$ {(form.benefits || []).reduce((s: number, i: any) => s + (parseFloat(i.value) || 0), 0).toFixed(2)}</p>
                     </div>
                     <div>
-                      <p className="text-xs text-muted-foreground">Total Geral</p>
+                      <p className="text-xs text-muted-foreground">Descontos</p>
+                      <p className="font-semibold text-sm text-destructive">- R$ {(form.deductions || []).reduce((s: number, i: any) => s + (parseFloat(i.value) || 0), 0).toFixed(2)}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground">Total Líquido</p>
                       <p className="font-bold text-sm text-primary">R$ {(
                         (form.salary_items || []).reduce((s: number, i: any) => s + (parseFloat(i.value) || 0), 0) +
-                        (form.benefits || []).reduce((s: number, i: any) => s + (parseFloat(i.value) || 0), 0)
+                        (form.benefits || []).reduce((s: number, i: any) => s + (parseFloat(i.value) || 0), 0) -
+                        (form.deductions || []).reduce((s: number, i: any) => s + (parseFloat(i.value) || 0), 0)
                       ).toFixed(2)}</p>
                     </div>
                   </div>

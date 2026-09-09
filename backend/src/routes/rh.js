@@ -270,6 +270,7 @@ async function ensureEmployeeExtraColumns() {
     await query(`ALTER TABLE employees ADD COLUMN IF NOT EXISTS pix_key_type VARCHAR(20)`);
     await query(`ALTER TABLE employees ADD COLUMN IF NOT EXISTS salary_items JSONB NOT NULL DEFAULT '[]'::jsonb`);
     await query(`ALTER TABLE employees ADD COLUMN IF NOT EXISTS benefits JSONB NOT NULL DEFAULT '[]'::jsonb`);
+    await query(`ALTER TABLE employees ADD COLUMN IF NOT EXISTS deductions JSONB NOT NULL DEFAULT '[]'::jsonb`);
     await query(`ALTER TABLE employees ADD COLUMN IF NOT EXISTS home_latitude NUMERIC(10,7)`);
     await query(`ALTER TABLE employees ADD COLUMN IF NOT EXISTS home_longitude NUMERIC(10,7)`);
     await query(`ALTER TABLE employees ADD COLUMN IF NOT EXISTS voter_zone VARCHAR(20)`);
@@ -467,6 +468,7 @@ function normalizeEmployeePayload(body = {}) {
     photo_url: emptyToNull(body.photo_url),
     salary_items: Array.isArray(body.salary_items) ? body.salary_items : [],
     benefits: Array.isArray(body.benefits) ? body.benefits : [],
+    deductions: Array.isArray(body.deductions) ? body.deductions : [],
     home_latitude: emptyToNull(body.home_latitude) ? Number(body.home_latitude) : null,
     home_longitude: emptyToNull(body.home_longitude) ? Number(body.home_longitude) : null,
   };
@@ -667,7 +669,7 @@ router.post('/employees', async (req, res) => {
           const updateFields = [];
           const updateValues = [];
           let pi = 1;
-          const skipKeys = ['organization_id', 'created_by', 'salary_items', 'benefits'];
+          const skipKeys = ['organization_id', 'created_by', 'salary_items', 'benefits', 'deductions'];
           for (const [k, v] of Object.entries(d)) {
             if (skipKeys.includes(k) || v === null || v === undefined || v === '') continue;
             updateFields.push(`${k} = $${pi++}`);
@@ -703,8 +705,8 @@ router.post('/employees', async (req, res) => {
         bank_name, bank_agency, bank_account, bank_account_type, pix_key, pix_key_type,
         ctps_number, ctps_series, pis_pasep, voter_id, voter_zone, voter_section, skin_color,
         cnpj, company_name, status, photo_url, created_by,
-        salary_items, benefits, home_latitude, home_longitude)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,$41,$42,$43,$44,$45,$46,$47,$48,$49,$50,$51,$52,$53,$54,$55)
+        salary_items, benefits, deductions, home_latitude, home_longitude)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,$41,$42,$43,$44,$45,$46,$47,$48,$49,$50,$51,$52,$53,$54,$55,$56)
        RETURNING *`,
       [orgId, d.company_id, d.full_name, d.social_name, d.cpf, d.rg, d.rg_issuer, d.birth_date, d.gender, d.marital_status, d.email, d.phone, d.phone2,
         d.address, d.address_number, d.complement, d.neighborhood, d.city, d.state, d.zip_code,
@@ -714,7 +716,7 @@ router.post('/employees', async (req, res) => {
         d.bank_name, d.bank_agency, d.bank_account, d.bank_account_type, d.pix_key, d.pix_key_type,
         d.ctps_number, d.ctps_series, d.pis_pasep, d.voter_id, d.voter_zone, d.voter_section, d.skin_color,
         d.cnpj, d.company_name, d.status, d.photo_url, req.userId,
-        JSON.stringify(d.salary_items), JSON.stringify(d.benefits), d.home_latitude, d.home_longitude]
+        JSON.stringify(d.salary_items), JSON.stringify(d.benefits), JSON.stringify(d.deductions), d.home_latitude, d.home_longitude]
     );
     if (req.body.facial_required === true || req.body.facial_required === false) {
       try {
@@ -765,7 +767,7 @@ router.put('/employees/:id', async (req, res) => {
       'admission_date','contract_end_date','salary','work_schedule','bank_name','bank_agency',
       'bank_account','bank_account_type','pix_key','pix_key_type','ctps_number','ctps_series','pis_pasep',
       'voter_id','voter_zone','voter_section','skin_color','cnpj',
-      'company_name','status','photo_url','salary_items','benefits',
+      'company_name','status','photo_url','salary_items','benefits','deductions',
       'home_latitude','home_longitude','facial_required',
       ...EXTENDED_EMPLOYEE_COLS,
     ]);
@@ -778,7 +780,7 @@ router.put('/employees/:id', async (req, res) => {
 
     // Normalize only sent fields
     const d = {};
-    const jsonbFields = ['salary_items', 'benefits'];
+    const jsonbFields = ['salary_items', 'benefits', 'deductions'];
     const extSet = new Set(EXTENDED_EMPLOYEE_COLS);
     for (const k of sentKeys) {
       if (k === 'work_schedule') {
@@ -3861,6 +3863,7 @@ router.get('/terminations/:id/trct', async (req, res) => {
 // ============================================================
 // FASE 11 - ADMISSÃO / ONBOARDING
 // ============================================================
+let onboardingDocsMigrated = false;
 async function ensureOnboardingTables() {
   await query(`
     CREATE TABLE IF NOT EXISTS rh_onboarding (
@@ -3916,13 +3919,29 @@ async function ensureOnboardingTables() {
   await query(`CREATE INDEX IF NOT EXISTS idx_onboarding_org ON rh_onboarding(organization_id, admission_date DESC)`);
   await query(`CREATE INDEX IF NOT EXISTS idx_onboarding_status ON rh_onboarding(organization_id, status)`);
 
+  // Migra processos de admissão já em andamento: junta o item "CPF" isolado
+  // dentro do item "RG" (que passa a se chamar "RG, CPF e CNH"), preservando
+  // o status de recebido do RG.
+  if (!onboardingDocsMigrated) {
+    onboardingDocsMigrated = true;
+    await query(`
+      UPDATE rh_onboarding
+      SET documents = COALESCE((
+        SELECT jsonb_agg(
+          CASE WHEN elem->>'key' = 'rg' THEN jsonb_set(elem, '{label}', '"RG, CPF e CNH"'::jsonb) ELSE elem END
+        )
+        FROM jsonb_array_elements(documents) elem
+        WHERE elem->>'key' <> 'cpf'
+      ), '[]'::jsonb)
+      WHERE documents @> '[{"key":"cpf"}]'::jsonb
+    `).catch(e => logError('rh.onboarding.migrateDocsSafeSkip', e));
+  }
 }
 
 
 // Documentos obrigatórios padrão (CLT + eSocial)
 const DEFAULT_ONBOARDING_DOCS = [
-  { key: 'rg', label: 'RG (frente e verso)', required: true, received: false },
-  { key: 'cpf', label: 'CPF', required: true, received: false },
+  { key: 'rg', label: 'RG, CPF e CNH', required: true, received: false },
   { key: 'ctps', label: 'Carteira de Trabalho (CTPS)', required: true, received: false },
   { key: 'pis', label: 'PIS/PASEP/NIS', required: true, received: false },
   { key: 'titulo', label: 'Título de eleitor', required: true, received: false },

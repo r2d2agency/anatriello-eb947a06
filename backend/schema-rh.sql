@@ -138,9 +138,10 @@ CREATE TABLE IF NOT EXISTS employees (
   -- Status
   status employee_status DEFAULT 'ativo',
 
-  -- Composição salarial e benefícios (JSONB arrays)
+  -- Composição salarial, benefícios e descontos (JSONB arrays)
   salary_items JSONB DEFAULT '[]', -- [{type, description, value}]
   benefits JSONB DEFAULT '[]', -- [{type, description, value, employer_cost}]
+  deductions JSONB DEFAULT '[]', -- [{type, description, value}]
 
   -- Metadados
   created_at TIMESTAMPTZ DEFAULT NOW(),
@@ -156,6 +157,7 @@ CREATE INDEX IF NOT EXISTS idx_employees_dept ON employees(department_id);
 -- Compatibilidade com bases antigas
 ALTER TABLE employees ADD COLUMN IF NOT EXISTS salary_items JSONB NOT NULL DEFAULT '[]'::jsonb;
 ALTER TABLE employees ADD COLUMN IF NOT EXISTS benefits JSONB NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS deductions JSONB NOT NULL DEFAULT '[]'::jsonb;
 
 -- FK de manager no departamento
 ALTER TABLE rh_departments ADD CONSTRAINT fk_rh_dept_manager FOREIGN KEY (manager_id) REFERENCES employees(id) ON DELETE SET NULL;

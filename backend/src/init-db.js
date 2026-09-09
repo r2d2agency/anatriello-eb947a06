@@ -3996,6 +3996,7 @@ ALTER TABLE employees ADD COLUMN IF NOT EXISTS supervisor_id UUID;
 -- Compensation columns for existing RH databases
 ALTER TABLE employees ADD COLUMN IF NOT EXISTS salary_items JSONB NOT NULL DEFAULT '[]'::jsonb;
 ALTER TABLE employees ADD COLUMN IF NOT EXISTS benefits JSONB NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS deductions JSONB NOT NULL DEFAULT '[]'::jsonb;
 `;
 
 // Step 44: Merchandising Phase 4 - Routes, Execution, Damages
