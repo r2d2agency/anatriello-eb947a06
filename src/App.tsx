@@ -84,6 +84,8 @@ import RHEspelhoDigital from "./pages/RHEspelhoDigital";
 
 
 import RHDocumentos from "./pages/RHDocumentos";
+import RHDenuncias from "./pages/RHDenuncias";
+import DenunciaPublica from "./pages/DenunciaPublica";
 import RHPontoMonitor from "./pages/RHPontoMonitor";
 import RHPDVs from "./pages/RHPDVs";
 import RHFeriados from "./pages/RHFeriados";
@@ -390,6 +392,7 @@ const App = () => (
 
 
             <Route path="/rh/documentos" element={<ProtectedRoute><RHDocumentos /></ProtectedRoute>} />
+            <Route path="/rh/denuncias" element={<ProtectedRoute><RHDenuncias /></ProtectedRoute>} />
             <Route path="/rh/ponto-monitor" element={<ProtectedRoute><RHPontoMonitor /></ProtectedRoute>} />
             <Route path="/rh/pdvs" element={<ProtectedRoute><RHPDVs /></ProtectedRoute>} />
             <Route path="/rh/feriados" element={<ProtectedRoute><RHFeriados /></ProtectedRoute>} />
@@ -555,6 +558,7 @@ const App = () => (
 
             <Route path="/api-docs" element={<ApiDocumentation />} />
             <Route path="/f/:slug" element={<PublicFormPage />} />
+            <Route path="/denuncia/:slug" element={<DenunciaPublica />} />
             <Route path="/assinar/:token" element={<AssinarDocumento />} />
             <Route path="/book/:token" element={<PublicPhotoBook />} />
             <Route path="/verificar/:documentId" element={<VerificarDocumento />} />
