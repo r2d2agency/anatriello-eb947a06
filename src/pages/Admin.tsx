@@ -2605,7 +2605,7 @@ export default function Admin() {
                         <SelectTrigger><SelectValue /></SelectTrigger>
                         <SelectContent>
                           <SelectItem value="standard">Padrão</SelectItem>
-                          <SelectItem value="kiosk">Quiosque</SelectItem>
+                          <SelectItem value="timeclock_kiosk">Tablet de ponto</SelectItem>
                           <SelectItem value="manager">Gestor</SelectItem>
                         </SelectContent>
                       </Select>

@@ -24,7 +24,14 @@ const ProtectedRoute = ({ children, loginPath = '/login', allowedAccountTypes, r
     return <Navigate to={loginPath} replace />;
   }
 
-  if (allowedAccountTypes && !allowedAccountTypes.includes(user?.account_type || 'standard')) {
+  const accountType = user?.account_type || 'standard';
+  const isKioskRoute = window.location.pathname === '/kiosk' || window.location.pathname === '/kiosk/login';
+
+  if (accountType === 'timeclock_kiosk' && !isKioskRoute) {
+    return <Navigate to="/kiosk" replace />;
+  }
+
+  if (allowedAccountTypes && !allowedAccountTypes.includes(accountType)) {
     const destination = redirectAccountType === 'kiosk' ? '/kiosk/login' : '/login';
     return <Navigate to={destination} replace />;
   }

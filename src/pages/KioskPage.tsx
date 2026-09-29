@@ -16,7 +16,7 @@ export default function KioskPage() {
   }, []);
 
   if (!ready) return null;
-  if (!authed || (user && user.account_type && user.account_type !== "kiosk")) {
+  if (!authed || !user || user.account_type !== "timeclock_kiosk") {
     return <Navigate to="/kiosk/login" replace />;
   }
 

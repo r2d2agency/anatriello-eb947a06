@@ -22,7 +22,7 @@ interface ModulesEnabled {
 // Page-level permissions from permission templates
 export type PagePermissions = Record<string, boolean> | null;
 
-export type AccountType = 'standard' | 'kiosk' | 'manager' | 'superadmin' | string;
+export type AccountType = 'standard' | 'timeclock_kiosk' | 'manager' | 'superadmin' | string;
 
 export interface User {
   id: string;

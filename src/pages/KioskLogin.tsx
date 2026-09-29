@@ -29,7 +29,7 @@ export default function KioskLogin() {
     try {
       const user = await login(email.trim(), password);
       const accountType = user.account_type;
-      if (accountType && accountType !== "kiosk") {
+      if (accountType !== "timeclock_kiosk") {
         throw new Error("Esta conta não possui acesso ao modo quiosque");
       }
       localStorage.setItem("kiosk_mode", "1");
