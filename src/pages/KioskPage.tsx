@@ -6,7 +6,7 @@ import { useAuth } from "@/contexts/AuthContext";
 export default function KioskPage() {
   const [ready, setReady] = useState(false);
   const [authed, setAuthed] = useState(false);
-  const { user } = useAuth();
+  const { user, isLoading } = useAuth();
 
   useEffect(() => {
     const token = localStorage.getItem("auth_token");
@@ -15,7 +15,7 @@ export default function KioskPage() {
     setReady(true);
   }, []);
 
-  if (!ready) return null;
+  if (!ready || isLoading) return null;
   if (!authed || !user || user.account_type !== "timeclock_kiosk") {
     return <Navigate to="/kiosk/login" replace />;
   }
