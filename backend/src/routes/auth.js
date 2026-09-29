@@ -344,12 +344,12 @@ router.get('/me', async (req, res) => {
     let result;
     try {
       result = await query(
-        'SELECT id, email, name, is_superadmin, created_at, COALESCE(must_change_password, false) AS must_change_password FROM users WHERE id = $1',
+        'SELECT id, email, name, is_superadmin, account_type, timeclock_kiosk, created_at, COALESCE(must_change_password, false) AS must_change_password FROM users WHERE id = $1',
         [decoded.userId]
       );
     } catch (_) {
       result = await query(
-        'SELECT id, email, name, is_superadmin, created_at, false AS must_change_password FROM users WHERE id = $1',
+        'SELECT id, email, name, is_superadmin, \'standard\' AS account_type, false AS timeclock_kiosk, created_at, false AS must_change_password FROM users WHERE id = $1',
         [decoded.userId]
       );
     }
@@ -472,7 +472,9 @@ router.get('/me', async (req, res) => {
         has_connections: hasConnections,
         page_permissions: pagePermissions,
         must_change_password: !!user.must_change_password,
-      } 
+        account_type: user.account_type || 'standard',
+        timeclock_kiosk: user.timeclock_kiosk === true,
+      }
     });
   } catch (error) {
     res.status(401).json({ error: 'Token inválido' });
