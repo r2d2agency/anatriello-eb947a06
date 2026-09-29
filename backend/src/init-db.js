@@ -45,6 +45,8 @@ CREATE TABLE IF NOT EXISTS users (
     password_hash VARCHAR(255) NOT NULL,
     name VARCHAR(255) NOT NULL,
     is_superadmin BOOLEAN DEFAULT false,
+    account_type VARCHAR(30) NOT NULL DEFAULT 'standard',
+    timeclock_kiosk BOOLEAN NOT NULL DEFAULT false,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
@@ -54,6 +56,12 @@ DO $$ BEGIN
     ALTER TABLE users ADD COLUMN IF NOT EXISTS is_superadmin BOOLEAN DEFAULT false;
 EXCEPTION
     WHEN duplicate_column THEN null;
+END $$;
+
+DO $$ BEGIN
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS account_type VARCHAR(30) NOT NULL DEFAULT 'standard';
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS timeclock_kiosk BOOLEAN NOT NULL DEFAULT false;
+EXCEPTION WHEN duplicate_column THEN NULL;
 END $$;
 
 -- Plans table (SaaS)

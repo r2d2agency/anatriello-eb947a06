@@ -6,6 +6,12 @@ import { logError } from '../logger.js';
 const router = express.Router();
 router.use(authenticate);
 
+// Kiosk endpoints are restricted to accounts explicitly enabled for timeclock use.
+router.use((req, res, next) => {
+  if (req.user?.timeclock_kiosk === true || req.user?.account_type === 'timeclock_kiosk') return next();
+  return res.status(403).json({ error: 'Acesso restrito ao modo quiosque de ponto' });
+});
+
 async function resolveOrgId(req) {
   const fromReq = req.body?.organization_id || req.query?.org_id || req.organizationId || req.headers['x-organization-id'];
   if (fromReq) return fromReq;

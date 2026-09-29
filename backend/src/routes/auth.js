@@ -198,12 +198,12 @@ router.post('/login', async (req, res) => {
     let result;
     try {
       result = await query(
-        'SELECT id, email, name, password_hash, is_superadmin, COALESCE(must_change_password, false) AS must_change_password FROM users WHERE lower(trim(email)) = lower(trim($1)) LIMIT 1',
+        'SELECT id, email, name, password_hash, is_superadmin, account_type, timeclock_kiosk, COALESCE(must_change_password, false) AS must_change_password FROM users WHERE lower(trim(email)) = lower(trim($1)) LIMIT 1',
         [email]
       );
     } catch (_) {
       result = await query(
-        'SELECT id, email, name, password_hash, is_superadmin, false AS must_change_password FROM users WHERE lower(trim(email)) = lower(trim($1)) LIMIT 1',
+        'SELECT id, email, name, password_hash, is_superadmin, \'standard\' AS account_type, false AS timeclock_kiosk, false AS must_change_password FROM users WHERE lower(trim(email)) = lower(trim($1)) LIMIT 1',
         [email]
       );
     }
@@ -318,6 +318,8 @@ router.post('/login', async (req, res) => {
         modules_enabled: modulesEnabled,
         has_connections: hasConnections,
         must_change_password: !!user.must_change_password,
+        account_type: user.account_type || 'standard',
+        timeclock_kiosk: user.timeclock_kiosk === true,
       },
       token
     });

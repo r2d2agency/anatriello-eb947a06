@@ -737,7 +737,7 @@ router.get('/users', requireSuperadmin, async (req, res) => {
     const { search, orphans_only } = req.query;
     
     let baseQuery = `
-      SELECT u.id, u.email, u.name, u.is_superadmin, u.created_at,
+      SELECT u.id, u.email, u.name, u.is_superadmin, u.account_type, u.timeclock_kiosk, u.created_at,
              COALESCE(
                (SELECT json_agg(json_build_object('org_id', o.id, 'org_name', o.name, 'role', om.role))
                 FROM organization_members om
@@ -783,7 +783,7 @@ router.get('/users/search-email', requireSuperadmin, async (req, res) => {
     }
     
     const result = await query(
-      `SELECT u.id, u.email, u.name, u.is_superadmin, u.created_at,
+      `SELECT u.id, u.email, u.name, u.is_superadmin, u.account_type, u.timeclock_kiosk, u.created_at,
               COALESCE(
                 (SELECT json_agg(json_build_object('org_id', o.id, 'org_name', o.name, 'role', om.role))
                  FROM organization_members om
@@ -1172,11 +1172,15 @@ router.get('/organizations/:id/members', requireSuperadmin, async (req, res) => 
 router.post('/organizations/:id/users', requireSuperadmin, async (req, res) => {
   try {
     const { id } = req.params;
-    const { email, name, password, role } = req.body;
+    const { email, name, password, role, account_type, timeclock_kiosk } = req.body;
 
     if (!email || !name || !password) {
       return res.status(400).json({ error: 'Email, nome e senha são obrigatórios' });
     }
+
+    const validAccountTypes = ['standard', 'timeclock_kiosk'];
+    const accountType = validAccountTypes.includes(account_type) ? account_type : 'standard';
+    const isKiosk = accountType === 'timeclock_kiosk' || timeclock_kiosk === true;
 
     // Get organization plan limits
     const orgPlan = await query(
@@ -1246,8 +1250,8 @@ router.post('/organizations/:id/users', requireSuperadmin, async (req, res) => {
       // Create new user
       const hashedPassword = await bcrypt.hash(password, 10);
       const newUser = await query(
-        `INSERT INTO users (email, name, password_hash) VALUES ($1, $2, $3) RETURNING id`,
-        [email, name, hashedPassword]
+        `INSERT INTO users (email, name, password_hash, account_type, timeclock_kiosk) VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+        [email, name, hashedPassword, accountType, isKiosk]
       );
       userId = newUser.rows[0].id;
     }
@@ -1263,7 +1267,9 @@ router.post('/organizations/:id/users', requireSuperadmin, async (req, res) => {
       user_id: userId, 
       email, 
       name, 
-      role: role || 'agent' 
+      role: role || 'agent',
+      account_type: accountType,
+      timeclock_kiosk: isKiosk
     });
   } catch (error) {
     console.error('Create org user error:', error);

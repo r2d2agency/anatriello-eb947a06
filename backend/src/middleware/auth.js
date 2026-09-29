@@ -18,7 +18,7 @@ export const authenticate = async (req, res, next) => {
 
     try {
       const result = await query(
-        `SELECT u.id, u.email, u.name, u.is_superadmin,
+        `SELECT u.id, u.email, u.name, u.is_superadmin, u.account_type, u.timeclock_kiosk,
                 om.role, o.id AS organization_id, o.modules_enabled
          FROM users u
          LEFT JOIN organization_members om ON om.user_id = u.id
@@ -54,6 +54,8 @@ export const authenticate = async (req, res, next) => {
         role: isSuperadmin ? 'superadmin' : user.role,
         organization_id: user.organization_id,
         modules_enabled: user.modules_enabled,
+        account_type: user.account_type || 'standard',
+        timeclock_kiosk: user.timeclock_kiosk === true,
       };
     } catch (error) {
       console.warn('[auth middleware] failed to enrich user context:', error.message);
