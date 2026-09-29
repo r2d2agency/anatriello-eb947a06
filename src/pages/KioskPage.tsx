@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react";
 import { Navigate } from "react-router-dom";
 import RHRelogioPonto from "./RHRelogioPonto";
+import { useAuth } from "@/contexts/AuthContext";
 
 export default function KioskPage() {
   const [ready, setReady] = useState(false);
   const [authed, setAuthed] = useState(false);
+  const { user } = useAuth();
 
   useEffect(() => {
     const token = localStorage.getItem("auth_token");
@@ -14,7 +16,9 @@ export default function KioskPage() {
   }, []);
 
   if (!ready) return null;
-  if (!authed) return <Navigate to="/kiosk/login" replace />;
+  if (!authed || (user && user.account_type && user.account_type !== "kiosk")) {
+    return <Navigate to="/kiosk/login" replace />;
+  }
 
   return <RHRelogioPonto kiosk />;
 }

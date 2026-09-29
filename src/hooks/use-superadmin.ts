@@ -67,6 +67,7 @@ interface Organization {
 
 interface OrgMember {
   id: string;
+  account_type?: string;
   user_id: string;
   email: string;
   name: string;
@@ -502,6 +503,7 @@ export function useSuperadmin() {
     name: string;
     password: string;
     role: string;
+    account_type?: string;
   }): Promise<OrgMember | null> => {
     setLoading(true);
     setError(null);

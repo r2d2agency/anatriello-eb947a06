@@ -5,10 +5,12 @@ import { Loader2 } from 'lucide-react';
 interface ProtectedRouteProps {
   children: React.ReactNode;
   loginPath?: string;
+  allowedAccountTypes?: string[];
+  redirectAccountType?: string;
 }
 
-const ProtectedRoute = ({ children, loginPath = '/login' }: ProtectedRouteProps) => {
-  const { isAuthenticated, isLoading } = useAuth();
+const ProtectedRoute = ({ children, loginPath = '/login', allowedAccountTypes, redirectAccountType }: ProtectedRouteProps) => {
+  const { isAuthenticated, isLoading, user } = useAuth();
 
   if (isLoading) {
     return (
@@ -20,6 +22,11 @@ const ProtectedRoute = ({ children, loginPath = '/login' }: ProtectedRouteProps)
 
   if (!isAuthenticated) {
     return <Navigate to={loginPath} replace />;
+  }
+
+  if (allowedAccountTypes && !allowedAccountTypes.includes(user?.account_type || 'standard')) {
+    const destination = redirectAccountType === 'kiosk' ? '/kiosk/login' : '/login';
+    return <Navigate to={destination} replace />;
   }
 
   return <>{children}</>;

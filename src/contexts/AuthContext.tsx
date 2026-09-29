@@ -22,12 +22,15 @@ interface ModulesEnabled {
 // Page-level permissions from permission templates
 export type PagePermissions = Record<string, boolean> | null;
 
-interface User {
+export type AccountType = 'standard' | 'kiosk' | 'manager' | 'superadmin' | string;
+
+export interface User {
   id: string;
   email: string;
   name: string;
   is_superadmin?: boolean;
   role?: string;
+  account_type?: AccountType;
   organization_id?: string;
   modules_enabled?: ModulesEnabled;
   has_connections?: boolean;
@@ -41,7 +44,7 @@ interface AuthContextType {
   isAuthenticated: boolean;
   modulesEnabled: ModulesEnabled;
   pagePermissions: PagePermissions;
-  login: (email: string, password: string) => Promise<void>;
+  login: (email: string, password: string) => Promise<User>;
   register: (email: string, password: string, name: string, planId?: string) => Promise<void>;
   logout: () => void;
   refreshUser: () => Promise<void>;
@@ -129,10 +132,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     setAuthToken(token);
     const u = userData as any;
     setUser(u);
+    localStorage.setItem('user', JSON.stringify(u));
     if (u.organization_id) {
       sessionStorage.setItem('user_org_id', u.organization_id);
     }
     toast({ title: 'Login realizado com sucesso!' });
+    return u;
   };
 
   const register = async (email: string, password: string, name: string, planId?: string) => {

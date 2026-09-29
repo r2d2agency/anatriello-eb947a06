@@ -216,6 +216,7 @@ export default function Admin() {
   const [newUserName, setNewUserName] = useState('');
   const [newUserPassword, setNewUserPassword] = useState('');
   const [newUserRole, setNewUserRole] = useState('agent');
+  const [newUserAccountType, setNewUserAccountType] = useState('standard');
 
   // Change password dialog
   const [changePasswordDialogOpen, setChangePasswordDialogOpen] = useState(false);
@@ -673,7 +674,8 @@ export default function Admin() {
       email: newUserEmail,
       name: newUserName,
       password: newUserPassword,
-      role: newUserRole
+      role: newUserRole,
+      account_type: newUserAccountType
     });
 
     if (user) {
@@ -683,6 +685,7 @@ export default function Admin() {
       setNewUserName('');
       setNewUserPassword('');
       setNewUserRole('agent');
+      setNewUserAccountType('standard');
       // Reload members
       await reloadMembers();
       loadData();
@@ -2595,6 +2598,17 @@ export default function Admin() {
                         value={newUserPassword}
                         onChange={(e) => setNewUserPassword(e.target.value)}
                       />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Tipo de conta</Label>
+                      <Select value={newUserAccountType} onValueChange={setNewUserAccountType}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="standard">Padrão</SelectItem>
+                          <SelectItem value="kiosk">Quiosque</SelectItem>
+                          <SelectItem value="manager">Gestor</SelectItem>
+                        </SelectContent>
+                      </Select>
                     </div>
                     <div className="space-y-2">
                       <Label>Permissão</Label>
