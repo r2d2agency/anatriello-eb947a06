@@ -330,7 +330,15 @@ function parseBrazilianNumber(value, fallback = null) {
 function normalizeDateValue(value) {
   const v = emptyToNull(value);
   if (!v) return null;
-  if (v instanceof Date && !Number.isNaN(v.getTime())) return v.toISOString().slice(0, 10);
+  if (v instanceof Date && !Number.isNaN(v.getTime())) {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit',
+    }).formatToParts(v);
+    const year = parts.find((part) => part.type === 'year')?.value;
+    const month = parts.find((part) => part.type === 'month')?.value;
+    const day = parts.find((part) => part.type === 'day')?.value;
+    return year && month && day ? `${year}-${month}-${day}` : null;
+  }
   const s = String(v).trim();
   if (!s) return null;
   const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
@@ -342,8 +350,10 @@ function normalizeDateValue(value) {
   }
   const serial = Number(s);
   if (Number.isFinite(serial) && serial > 10000 && serial < 100000) {
-    const d = new Date((serial - 25569) * 86400000);
-    if (!Number.isNaN(d.getTime())) return d.toISOString().slice(0, 10);
+    const d = new Date(Date.UTC(1899, 11, 30) + Math.floor(serial) * 86400000);
+    if (!Number.isNaN(d.getTime())) {
+      return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+    }
   }
   return null;
 }
@@ -3299,7 +3309,7 @@ router.get('/analytics', async (req, res) => {
         `SELECT e.id, e.full_name, e.birth_date, e.position
          FROM employees e
          WHERE ${empWhere} AND e.status = 'ativo' AND e.birth_date IS NOT NULL
-           AND EXTRACT(MONTH FROM e.birth_date) = EXTRACT(MONTH FROM CURRENT_DATE)
+           AND EXTRACT(MONTH FROM e.birth_date) = EXTRACT(MONTH FROM (CURRENT_TIMESTAMP AT TIME ZONE 'America/Sao_Paulo')::date)
          ORDER BY EXTRACT(DAY FROM e.birth_date)`,
         empParams
       );

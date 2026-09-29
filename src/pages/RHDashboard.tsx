@@ -25,17 +25,15 @@ import {
 } from "lucide-react";
 import { OvertimeRequestsPanel, useOvertimePendingCount } from "@/components/rh/OvertimeRequestsPanel";
 import { format } from "date-fns";
+import { formatCivilDateDisplay, parseCivilDate, todayInSaoPaulo } from "@/lib/date-civil";
 
 const safeDate = (v: any): Date | null => {
-  if (!v) return null;
-  const d = new Date(typeof v === 'string' && !v.includes('T') ? v + 'T12:00:00' : v);
-  return d && !Number.isNaN(d.getTime()) ? d : null;
+  const civil = parseCivilDate(typeof v === 'string' ? v.slice(0, 10) : v);
+  return civil ? new Date(civil.year, civil.month - 1, civil.day, 12) : null;
 };
 
-const safeFormat = (v: any, fmt: string, fallback = "—"): string => {
-  const d = safeDate(v);
-  return d ? format(d, fmt) : fallback;
-};
+const safeFormat = (v: any, _fmt: string, fallback = "—"): string =>
+  formatCivilDateDisplay(v) || fallback;
 
 const VACATION_EMPTY = {
   employee_id: "", vacation_type: "completa", start_date: "", end_date: "",
@@ -179,9 +177,10 @@ export default function RHDashboard() {
   // ===== BIRTHDAY CALCULATIONS =====
   const birthdays = useMemo(() => {
     if (!employees.length) return { today: [], week: [], month: [] };
-    const now = new Date();
-    const todayM = now.getMonth();
-    const todayD = now.getDate();
+    const saoPauloToday = todayInSaoPaulo();
+    const now = new Date(saoPauloToday.year, saoPauloToday.month - 1, saoPauloToday.day, 12);
+    const todayM = saoPauloToday.month - 1;
+    const todayD = saoPauloToday.day;
     const todayDow = now.getDay(); // 0=Sun
     // Week range: Mon-Sun of current week
     const mondayOffset = todayDow === 0 ? -6 : 1 - todayDow;

@@ -13,7 +13,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useHolidays, useCreateHoliday, useBulkImportHolidays, useDeleteHoliday, useUpdateHoliday } from "@/hooks/use-rh";
 import { CalendarDays, Plus, Upload, Trash2, FileSpreadsheet, Loader2, Pencil } from "lucide-react";
 
-import { format } from "date-fns";
+import { formatCivilDateDisplay, excelSerialToCivilDate } from "@/lib/date-civil";
 import * as XLSX from "xlsx";
 
 const ESTADOS_BR = [
@@ -289,23 +289,15 @@ export default function RHFeriados() {
 }
 
 // Helpers
-function safeFormat(v: any, fmt: string, fallback = '—') {
-  if (!v) return fallback;
-  const d = new Date(typeof v === 'string' && !v.includes('T') ? v + 'T12:00:00' : v);
-  return d && !Number.isNaN(d.getTime()) ? format(d, fmt) : fallback;
+function safeFormat(v: any, _fmt: string, fallback = '—') {
+  return formatCivilDateDisplay(v) || fallback;
 }
 
 function parseExcelDate(v: any): string {
   if (!v) return '';
-  if (typeof v === 'number') {
-    const d = new Date((v - 25569) * 86400000);
-    return format(d, 'yyyy-MM-dd');
-  }
+  if (typeof v === 'number') return excelSerialToCivilDate(v) || '';
   const s = String(v).trim();
-  // dd/MM/yyyy
   const m = s.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
   if (m) return `${m[3]}-${m[2]}-${m[1]}`;
-  // yyyy-MM-dd already
-  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
-  return s;
+  return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : '';
 }

@@ -18,15 +18,17 @@ import { useRhAnalytics } from "@/hooks/use-rh-analytics";
 import { useCompanies } from "@/hooks/use-companies";
 import { useRhDepartments } from "@/hooks/use-rh";
 import { format } from "date-fns";
+import { formatCivilDate, formatCivilDateDisplay, todayInSaoPaulo } from "@/lib/date-civil";
 
 const COLORS = ["#6366f1", "#ec4899", "#10b981", "#f59e0b", "#06b6d4", "#8b5cf6", "#ef4444", "#84cc16"];
 
 function firstOfMonth() {
-  const d = new Date();
-  return new Date(d.getFullYear(), d.getMonth(), 1).toISOString().slice(0, 10);
+  const today = todayInSaoPaulo();
+  return formatCivilDate(`${today.year}-${String(today.month).padStart(2, '0')}-01`) || '';
 }
 function todayIso() {
-  return new Date().toISOString().slice(0, 10);
+  const today = todayInSaoPaulo();
+  return formatCivilDate(`${today.year}-${String(today.month).padStart(2, '0')}-${String(today.day).padStart(2, '0')}`) || '';
 }
 
 function Kpi({ label, value, icon: Icon, hint, color = "text-primary" }: any) {
@@ -325,7 +327,7 @@ export default function RHAnalytics() {
                     <p className="truncate">{e.full_name}</p>
                     <p className="text-[10px] text-muted-foreground">{e.position || ""}</p>
                   </div>
-                  <Badge variant="secondary">{e.birth_date ? format(new Date(e.birth_date + 'T12:00:00'), 'dd/MM') : '—'}</Badge>
+                  <Badge variant="secondary">{e.birth_date ? formatCivilDateDisplay(e.birth_date)?.slice(0, 5) || '—' : '—'}</Badge>
                 </div>
               ))}
               {!data?.birthdays?.length && (
