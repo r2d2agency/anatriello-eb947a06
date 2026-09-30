@@ -2276,7 +2276,7 @@ router.get('/holidays', async (req, res) => {
 
     const { year, type } = req.query;
     const params = [orgId];
-    let sql = `SELECT * FROM holidays WHERE organization_id = $1 AND active = true`;
+    let sql = `SELECT h.*, to_char(h.holiday_date, 'YYYY-MM-DD') AS holiday_date FROM holidays h WHERE h.organization_id = $1 AND h.active = true`;
 
     if (year) {
       sql += ` AND EXTRACT(YEAR FROM holiday_date) = $${params.length + 1}`;
@@ -2302,7 +2302,8 @@ router.post('/holidays', async (req, res) => {
   try {
     const orgId = await getUserOrgId(req.userId);
     const { name, holiday_date, type, state, city, recurring } = req.body;
-    if (!name || !holiday_date) return res.status(400).json({ error: 'Nome e data obrigatórios' });
+    const civilHolidayDate = normalizeDateValue(holiday_date);
+    if (!name || !civilHolidayDate) return res.status(400).json({ error: 'Nome e data obrigatórios' });
 
     const r = await query(
       `INSERT INTO holidays (organization_id, name, holiday_date, type, state, city, recurring)
@@ -2315,7 +2316,7 @@ router.post('/holidays', async (req, res) => {
          active = true,
          updated_at = NOW()
        RETURNING *`,
-      [orgId, name, holiday_date, type || 'nacional', emptyToNull(state), emptyToNull(city), recurring !== false]
+      [orgId, name, civilHolidayDate, type || 'nacional', emptyToNull(state), emptyToNull(city), recurring !== false]
     );
     res.json(r.rows[0]);
   } catch (err) {
@@ -2361,11 +2362,13 @@ router.put('/holidays/:id', async (req, res) => {
   try {
     const orgId = await getUserOrgId(req.userId);
     const { name, holiday_date, type, state, city, recurring, active } = req.body;
+    const civilHolidayDate = holiday_date === undefined ? undefined : normalizeDateValue(holiday_date);
+    if (holiday_date !== undefined && !civilHolidayDate) return res.status(400).json({ error: 'Data inválida' });
     const fields = [];
     const values = [];
     let i = 1;
     if (name !== undefined) { fields.push(`name = $${i++}`); values.push(name); }
-    if (holiday_date !== undefined) { fields.push(`holiday_date = $${i++}`); values.push(holiday_date); }
+    if (civilHolidayDate !== undefined) { fields.push(`holiday_date = $${i++}`); values.push(civilHolidayDate); }
     if (type !== undefined) { fields.push(`type = $${i++}`); values.push(type); }
     if (state !== undefined) { fields.push(`state = $${i++}`); values.push(emptyToNull(state)); }
     if (city !== undefined) { fields.push(`city = $${i++}`); values.push(emptyToNull(city)); }
