@@ -17,7 +17,7 @@ const minutes = t => { const [h,m] = String(t).split(':').map(Number); return h 
 
 export async function scanForgottenPunches({ organizationId, date = spDate(new Date()), now = new Date(), graceMinutes = 15 } = {}) {
   await ensureForgottenPunchSchema();
-  const employees = await query(`SELECT e.id, e.full_name, e.work_schedule, ws.schedule_json, ws.kind, ws.cycle_pattern, ws.cycle_start_date
+  const employees = await query(`SELECT e.id, e.full_name, e.work_schedule, e.work_schedule_id, ws.schedule_json, ws.kind, ws.cycle_pattern, ws.cycle_start_date
     FROM employees e LEFT JOIN work_schedules ws ON ws.id = e.work_schedule_id
     WHERE e.organization_id = $1 AND COALESCE(e.status, 'active') NOT IN ('inactive','terminated')`, [organizationId]);
   let created = 0;
