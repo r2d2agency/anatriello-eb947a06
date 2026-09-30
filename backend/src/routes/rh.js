@@ -2334,7 +2334,8 @@ router.post('/holidays/bulk', async (req, res) => {
 
     let imported = 0;
     for (const h of holidays) {
-      if (!h.name || !h.holiday_date) continue;
+      const civilHolidayDate = normalizeDateValue(h.holiday_date);
+      if (!h.name || !civilHolidayDate) continue;
       await query(
         `INSERT INTO holidays (organization_id, name, holiday_date, type, state, city, recurring)
          VALUES ($1,$2,$3,$4,$5,$6,$7)
@@ -2345,7 +2346,7 @@ router.post('/holidays/bulk', async (req, res) => {
            recurring = EXCLUDED.recurring,
            active = true,
            updated_at = NOW()`,
-        [orgId, h.name, h.holiday_date, h.type || 'nacional', emptyToNull(h.state), emptyToNull(h.city), h.recurring !== false]
+        [orgId, h.name, civilHolidayDate, h.type || 'nacional', emptyToNull(h.state), emptyToNull(h.city), h.recurring !== false]
       );
       imported++;
     }
