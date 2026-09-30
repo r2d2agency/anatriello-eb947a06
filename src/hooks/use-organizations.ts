@@ -54,6 +54,7 @@ interface AddMemberParams {
   role: string;
   name?: string;
   password?: string;
+  account_type?: string;
   connection_ids?: string[];
   department_ids?: string[];
 }

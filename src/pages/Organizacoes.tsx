@@ -117,6 +117,7 @@ export default function Organizacoes() {
   const [newMemberName, setNewMemberName] = useState('');
   const [newMemberPassword, setNewMemberPassword] = useState('');
   const [newMemberRole, setNewMemberRole] = useState<string>('agent');
+  const [newMemberAccountType, setNewMemberAccountType] = useState<string>('standard');
   const [newMemberConnectionIds, setNewMemberConnectionIds] = useState<string[]>([]);
   const [newMemberDepartmentIds, setNewMemberDepartmentIds] = useState<string[]>([]);
 
@@ -487,6 +488,7 @@ export default function Organizacoes() {
       role: newMemberRole,
       name: newMemberName,
       password: newMemberPassword,
+      account_type: newMemberAccountType,
       connection_ids: newMemberConnectionIds.length > 0 ? newMemberConnectionIds : undefined,
       department_ids: newMemberDepartmentIds.length > 0 ? newMemberDepartmentIds : undefined
     });
@@ -506,6 +508,7 @@ export default function Organizacoes() {
     setNewMemberName('');
     setNewMemberPassword('');
     setNewMemberRole('agent');
+    setNewMemberAccountType('standard');
     setNewMemberConnectionIds([]);
     setNewMemberDepartmentIds([]);
   };
@@ -920,6 +923,18 @@ export default function Organizacoes() {
                                         <SelectItem value="agent">Agente - Acesso básico</SelectItem>
                                       </SelectContent>
                                     </Select>
+                                  </div>
+
+                                  <div className="space-y-2">
+                                    <Label>Tipo de conta</Label>
+                                    <Select value={newMemberAccountType} onValueChange={setNewMemberAccountType}>
+                                      <SelectTrigger><SelectValue /></SelectTrigger>
+                                      <SelectContent>
+                                        <SelectItem value="standard">Conta normal</SelectItem>
+                                        <SelectItem value="timeclock_kiosk">Tablet de ponto</SelectItem>
+                                      </SelectContent>
+                                    </Select>
+                                    <p className="text-xs text-muted-foreground">O tablet acessará somente o relógio de ponto.</p>
                                   </div>
 
                                   {connections.length > 0 && (
