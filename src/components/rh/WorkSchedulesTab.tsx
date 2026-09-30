@@ -30,17 +30,6 @@ const WEEKDAYS: Array<{ key: string; label: string }> = [
 const minToHHMM = (v: number) => `${String(Math.floor((v || 0) / 60)).padStart(2, '0')}:${String((v || 0) % 60).padStart(2, '0')}`;
 const hhmmToMin = (v: string) => { const [h, m] = v.split(':').map(Number); return Number.isFinite(h) && Number.isFinite(m) ? h * 60 + m : null; };
 
-function minToHHMM(value: number | null | undefined) {
-  const minutes = Math.max(0, Math.min(1440, Number(value ?? 0)));
-  return `${String(Math.floor(minutes / 60) % 24).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
-}
-
-function hhmmToMin(value: string) {
-  const match = String(value || '').match(/^(\\d{1,2}):(\\d{2})$/);
-  if (!match) return null;
-  return Number(match[1]) * 60 + Number(match[2]);
-}
-
 const KIND_LABEL: Record<string, string> = {
   fixa: 'Fixa semanal',
   escala_6x1: 'Escala 6x1',
