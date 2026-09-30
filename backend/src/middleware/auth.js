@@ -17,23 +17,46 @@ export const authenticate = async (req, res, next) => {
     req.userEmail = decoded.email;
 
     try {
-      const result = await query(
-        `SELECT u.id, u.email, u.name, u.is_superadmin, u.account_type, u.timeclock_kiosk,
-                om.role, o.id AS organization_id, o.modules_enabled
-         FROM users u
-         LEFT JOIN organization_members om ON om.user_id = u.id
-         LEFT JOIN organizations o ON o.id = om.organization_id
-         WHERE u.id = $1
-         ORDER BY CASE om.role
-           WHEN 'owner' THEN 1
-           WHEN 'admin' THEN 2
-           WHEN 'manager' THEN 3
-           WHEN 'agent' THEN 4
-           ELSE 5
-         END
-         LIMIT 1`,
-        [decoded.userId]
-      );
+      let result;
+      try {
+        result = await query(
+          `SELECT u.id, u.email, u.name, u.is_superadmin, u.account_type, u.timeclock_kiosk,
+                  om.role, o.id AS organization_id, o.modules_enabled
+           FROM users u
+           LEFT JOIN organization_members om ON om.user_id = u.id
+           LEFT JOIN organizations o ON o.id = om.organization_id
+           WHERE u.id = $1
+           ORDER BY CASE om.role
+             WHEN 'owner' THEN 1
+             WHEN 'admin' THEN 2
+             WHEN 'manager' THEN 3
+             WHEN 'agent' THEN 4
+             ELSE 5
+           END
+           LIMIT 1`,
+          [decoded.userId]
+        );
+      } catch (error) {
+        // Schemas without the kiosk columns: retry without them so role/org
+        // context is still resolved instead of degrading to an empty user.
+        result = await query(
+          `SELECT u.id, u.email, u.name, u.is_superadmin,
+                  om.role, o.id AS organization_id, o.modules_enabled
+           FROM users u
+           LEFT JOIN organization_members om ON om.user_id = u.id
+           LEFT JOIN organizations o ON o.id = om.organization_id
+           WHERE u.id = $1
+           ORDER BY CASE om.role
+             WHEN 'owner' THEN 1
+             WHEN 'admin' THEN 2
+             WHEN 'manager' THEN 3
+             WHEN 'agent' THEN 4
+             ELSE 5
+           END
+           LIMIT 1`,
+          [decoded.userId]
+        );
+      }
 
       if (!result.rows.length) {
         return res.status(401).json({ error: 'Usuário não encontrado' });
