@@ -41,23 +41,15 @@ const toSPDateStr = (dateOrString) => {
   return new Intl.DateTimeFormat('en-CA', { timeZone: TIMEZONE }).format(d);
 };
 
-// Constantes hora noturna (22h → 5h)
-const NIGHT_START = 22 * 60;
-const NIGHT_END = 5 * 60;
-
-// Interseção do intervalo [a,b) com [nightStart,1440)+[0,nightEnd)
-function nightMinutesInRange(startMin, endMin) {
+// Interseção do intervalo [a,b) com janela noturna configurável, inclusive em virada de dia.
+function nightMinutesInRange(startMin, endMin, nightStart = 22 * 60, nightEnd = 5 * 60) {
   if (endMin <= startMin) return 0;
-  let total = 0;
-  // Janela 22-24
-  const a1 = Math.max(startMin, NIGHT_START);
-  const b1 = Math.min(endMin, 24 * 60);
-  if (b1 > a1) total += b1 - a1;
-  // Janela 0-5
-  const a2 = Math.max(startMin, 0);
-  const b2 = Math.min(endMin, NIGHT_END);
-  if (b2 > a2) total += b2 - a2;
-  return total;
+  const start = Math.max(0, Math.min(1439, Number(nightStart) || 0));
+  const end = Math.max(1, Math.min(1440, Number(nightEnd) || 1));
+  const windows = start < end
+    ? [[start, end], [start + 1440, end + 1440]]
+    : [[start, 1440], [0, end], [start + 1440, 2880], [1440, 1440 + end]];
+  return windows.reduce((total, [a, b]) => total + Math.max(0, Math.min(endMin, b) - Math.max(startMin, a)), 0);
 }
 
 // --- parsing da jornada ---
@@ -151,6 +143,9 @@ export function calculateDay({ punches = [], schedule, isHoliday = false, isSund
   const sundayBonusPct = rules.sunday_bonus_pct ?? 100;
   const holidayBonusPct = rules.holiday_bonus_pct ?? 100;
   const overtimePct = rules.overtime_weekday_pct ?? 50;
+  const weekendPct = rules.overtime_weekend_pct ?? sundayBonusPct;
+  const nightStart = rules.night_start_min ?? 22 * 60;
+  const nightEnd = rules.night_end_min ?? 5 * 60;
 
   const sorted = [...punches]
     .filter(p => p && p.punched_at)
@@ -211,7 +206,7 @@ export function calculateDay({ punches = [], schedule, isHoliday = false, isSund
     if (b <= a) b += 24 * 60; // turno cruzando meia-noite
     if (b > a) {
       workedMin += (b - a);
-      nightMin += nightMinutesInRange(a, b);
+      nightMin += nightMinutesInRange(a, b, nightStart, nightEnd);
     }
   }
 
@@ -235,7 +230,7 @@ export function calculateDay({ punches = [], schedule, isHoliday = false, isSund
     status = 'folga';
     balanceMin = workedMin;
     overtimeMin = workedMin;
-    overtimeBonusMin = Math.round(workedMin * sundayBonusPct / 100);
+    overtimeBonusMin = Math.round(workedMin * weekendPct / 100);
   } else if (times.length === 0) {
     status = expectedMin > 0 ? 'falta' : 'folga';
     balanceMin = expectedMin > 0 ? -expectedMin : 0;
@@ -293,7 +288,8 @@ export async function recalcEmployeePeriod({ organizationId, employeeId, startDa
       `SELECT e.id, e.work_schedule, e.work_schedule_id, e.company_id,
               ws.schedule_json, ws.kind AS ws_kind, ws.cycle_pattern, ws.cycle_start_date,
               ws.tolerance_minutes AS ws_tol, ws.night_bonus_pct, ws.sunday_bonus_pct,
-              ws.holiday_bonus_pct, ws.overtime_weekday_pct, ws.dsr_enabled, ws.night_reduced_hour
+              ws.holiday_bonus_pct, ws.overtime_weekday_pct, ws.overtime_weekend_pct,
+              ws.night_start_min, ws.night_end_min, ws.dsr_enabled, ws.night_reduced_hour
        FROM employees e
        LEFT JOIN work_schedules ws ON ws.id = e.work_schedule_id
        WHERE e.id = $1`,
@@ -305,7 +301,9 @@ export async function recalcEmployeePeriod({ organizationId, employeeId, startDa
       `SELECT e.id, e.work_schedule, NULL::uuid AS work_schedule_id, e.company_id,
               NULL::jsonb AS schedule_json, NULL::text AS ws_kind, NULL::text AS cycle_pattern, NULL::date AS cycle_start_date,
               NULL::int AS ws_tol, NULL::int AS night_bonus_pct, NULL::int AS sunday_bonus_pct,
-              NULL::int AS holiday_bonus_pct, NULL::int AS overtime_weekday_pct, NULL::bool AS dsr_enabled, NULL::int AS night_reduced_hour
+              NULL::int AS holiday_bonus_pct, NULL::int AS overtime_weekday_pct,
+              NULL::int AS overtime_weekend_pct, NULL::int AS night_start_min, NULL::int AS night_end_min,
+              NULL::bool AS dsr_enabled, NULL::int AS night_reduced_hour
        FROM employees e WHERE e.id = $1`,
       [employeeId]
     ).catch(() => ({ rows: [] }));
@@ -327,6 +325,9 @@ export async function recalcEmployeePeriod({ organizationId, employeeId, startDa
     sunday_bonus_pct: row.sunday_bonus_pct ?? 100,
     holiday_bonus_pct: row.holiday_bonus_pct ?? 100,
     overtime_weekday_pct: row.overtime_weekday_pct ?? 50,
+    overtime_weekend_pct: row.overtime_weekend_pct ?? 100,
+    night_start_min: row.night_start_min ?? 1320,
+    night_end_min: row.night_end_min ?? 300,
     dsr_enabled: row.dsr_enabled ?? true,
   };
 

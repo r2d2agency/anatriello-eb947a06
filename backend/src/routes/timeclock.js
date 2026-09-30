@@ -158,6 +158,9 @@ const SCHEMA_STATEMENTS = [
       sunday_bonus_pct INTEGER DEFAULT 100,
       holiday_bonus_pct INTEGER DEFAULT 100,
       overtime_weekday_pct INTEGER DEFAULT 50,
+      overtime_weekend_pct INTEGER DEFAULT 100,
+      night_start_min INTEGER DEFAULT 1320,
+      night_end_min INTEGER DEFAULT 300,
       dsr_enabled BOOLEAN DEFAULT TRUE,
       night_reduced_hour BOOLEAN DEFAULT TRUE,
       active BOOLEAN DEFAULT TRUE,
@@ -350,6 +353,9 @@ async function ensureWorkSchedulesTable() {
       sunday_bonus_pct INTEGER DEFAULT 100,
       holiday_bonus_pct INTEGER DEFAULT 100,
       overtime_weekday_pct INTEGER DEFAULT 50,
+      overtime_weekend_pct INTEGER DEFAULT 100,
+      night_start_min INTEGER DEFAULT 1320,
+      night_end_min INTEGER DEFAULT 300,
       dsr_enabled BOOLEAN DEFAULT TRUE,
       night_reduced_hour BOOLEAN DEFAULT TRUE,
       active BOOLEAN DEFAULT TRUE,
@@ -357,6 +363,9 @@ async function ensureWorkSchedulesTable() {
       updated_at TIMESTAMPTZ DEFAULT NOW()
     )`);
   await query(`ALTER TABLE employees ADD COLUMN IF NOT EXISTS work_schedule_id UUID`);
+  await query(`ALTER TABLE work_schedules ADD COLUMN IF NOT EXISTS overtime_weekend_pct INTEGER DEFAULT 100`);
+  await query(`ALTER TABLE work_schedules ADD COLUMN IF NOT EXISTS night_start_min INTEGER DEFAULT 1320`);
+  await query(`ALTER TABLE work_schedules ADD COLUMN IF NOT EXISTS night_end_min INTEGER DEFAULT 300`);
 }
 
 // Normaliza o schedule_json: aceita "8:00-17:00", "08h00 as 17h00", "folga", etc.
@@ -405,16 +414,18 @@ router.post('/work-schedules', async (req, res) => {
       `INSERT INTO work_schedules
        (organization_id, company_id, name, kind, schedule_json, cycle_pattern, cycle_start_date,
         tolerance_minutes, night_bonus_pct, sunday_bonus_pct, holiday_bonus_pct,
-        overtime_weekday_pct, dsr_enabled, night_reduced_hour, active)
-       VALUES ($1,$2,$3,$4,$5::jsonb,$6::jsonb,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING *`,
+        overtime_weekday_pct, overtime_weekend_pct, night_start_min, night_end_min,
+        dsr_enabled, night_reduced_hour, active)
+       VALUES ($1,$2,$3,$4,$5::jsonb,$6::jsonb,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) RETURNING *`,
       [orgId, b.company_id || null, String(b.name).trim(), b.kind || 'fixa',
         JSON.stringify(normalizeScheduleJson(b.schedule_json)),
         cycle ? JSON.stringify(cycle) : null,
         b.cycle_start_date || null,
         intOr(b.tolerance_minutes, 10), intOr(b.night_bonus_pct, 20),
         intOr(b.sunday_bonus_pct, 100), intOr(b.holiday_bonus_pct, 100),
-        intOr(b.overtime_weekday_pct, 50), b.dsr_enabled !== false,
-        b.night_reduced_hour !== false, b.active !== false]);
+        intOr(b.overtime_weekday_pct, 50), intOr(b.overtime_weekend_pct, 100),
+        intOr(b.night_start_min, 1320), intOr(b.night_end_min, 300),
+        b.dsr_enabled !== false, b.night_reduced_hour !== false, b.active !== false]);
     res.json(r.rows[0]);
   } catch (err) {
     logError('timeclock.ws.post', err);
@@ -437,9 +448,12 @@ router.put('/work-schedules/:id', async (req, res) => {
          sunday_bonus_pct=COALESCE($9,sunday_bonus_pct),
          holiday_bonus_pct=COALESCE($10,holiday_bonus_pct),
          overtime_weekday_pct=COALESCE($11,overtime_weekday_pct),
-         dsr_enabled=COALESCE($12,dsr_enabled),
-         night_reduced_hour=COALESCE($13,night_reduced_hour),
-         active=COALESCE($14,active), company_id=$15,
+         overtime_weekend_pct=COALESCE($12,overtime_weekend_pct),
+         night_start_min=COALESCE($13,night_start_min),
+         night_end_min=COALESCE($14,night_end_min),
+         dsr_enabled=COALESCE($15,dsr_enabled),
+         night_reduced_hour=COALESCE($16,night_reduced_hour),
+         active=COALESCE($17,active), company_id=$18,
          updated_at=NOW()
        WHERE id=$1 RETURNING *`,
       [req.params.id, b.name ? String(b.name).trim() : null, b.kind,
@@ -448,7 +462,8 @@ router.put('/work-schedules/:id', async (req, res) => {
         b.cycle_start_date || null,
         intOr(b.tolerance_minutes, null), intOr(b.night_bonus_pct, null),
         intOr(b.sunday_bonus_pct, null), intOr(b.holiday_bonus_pct, null),
-        intOr(b.overtime_weekday_pct, null),
+        intOr(b.overtime_weekday_pct, null), intOr(b.overtime_weekend_pct, null),
+        intOr(b.night_start_min, null), intOr(b.night_end_min, null),
         typeof b.dsr_enabled === 'boolean' ? b.dsr_enabled : null,
         typeof b.night_reduced_hour === 'boolean' ? b.night_reduced_hour : null,
         typeof b.active === 'boolean' ? b.active : null,
