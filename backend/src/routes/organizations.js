@@ -384,7 +384,8 @@ router.get('/:id([0-9a-fA-F-]{36})/members', async (req, res) => {
 router.post('/:id([0-9a-fA-F-]{36})/members', async (req, res) => {
   try {
     const { id } = req.params;
-    const { email, name, password, role, connection_ids } = req.body;
+    const { email, name, password, role, account_type, connection_ids } = req.body;
+    const accountType = account_type === 'timeclock_kiosk' ? 'timeclock_kiosk' : 'standard';
 
     // Check if user is admin/owner
     const memberCheck = await query(
@@ -424,8 +425,8 @@ router.post('/:id([0-9a-fA-F-]{36})/members', async (req, res) => {
       // Create the user
       const hashedPassword = await bcrypt.hash(password, 10);
       const newUser = await query(
-        `INSERT INTO users (name, email, password_hash) VALUES ($1, $2, $3) RETURNING id`,
-        [name, email, hashedPassword]
+        `INSERT INTO users (name, email, password_hash, account_type, timeclock_kiosk) VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+        [name, email, hashedPassword, accountType, accountType === 'timeclock_kiosk']
       );
       userId = newUser.rows[0].id;
       userCreated = true;
