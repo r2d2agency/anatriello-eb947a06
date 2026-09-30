@@ -27,6 +27,20 @@ const WEEKDAYS: Array<{ key: string; label: string }> = [
   { key: 'sun', label: 'Domingo' },
 ];
 
+const minToHHMM = (v: number) => `${String(Math.floor((v || 0) / 60)).padStart(2, '0')}:${String((v || 0) % 60).padStart(2, '0')}`;
+const hhmmToMin = (v: string) => { const [h, m] = v.split(':').map(Number); return Number.isFinite(h) && Number.isFinite(m) ? h * 60 + m : null; };
+
+function minToHHMM(value: number | null | undefined) {
+  const minutes = Math.max(0, Math.min(1440, Number(value ?? 0)));
+  return `${String(Math.floor(minutes / 60) % 24).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
+}
+
+function hhmmToMin(value: string) {
+  const match = String(value || '').match(/^(\\d{1,2}):(\\d{2})$/);
+  if (!match) return null;
+  return Number(match[1]) * 60 + Number(match[2]);
+}
+
 const KIND_LABEL: Record<string, string> = {
   fixa: 'Fixa semanal',
   escala_6x1: 'Escala 6x1',
@@ -48,6 +62,9 @@ function emptyForm() {
     sunday_bonus_pct: 100,
     holiday_bonus_pct: 100,
     overtime_weekday_pct: 50,
+    overtime_weekend_pct: 100,
+    night_start_min: 1320,
+    night_end_min: 300,
     dsr_enabled: true,
     night_reduced_hour: true,
     active: true,
@@ -86,6 +103,9 @@ export function WorkSchedulesTab() {
       sunday_bonus_pct: s.sunday_bonus_pct ?? 100,
       holiday_bonus_pct: s.holiday_bonus_pct ?? 100,
       overtime_weekday_pct: s.overtime_weekday_pct ?? 50,
+      overtime_weekend_pct: s.overtime_weekend_pct ?? 100,
+      night_start_min: s.night_start_min ?? 1320,
+      night_end_min: s.night_end_min ?? 300,
       dsr_enabled: s.dsr_enabled !== false,
       night_reduced_hour: s.night_reduced_hour !== false,
       active: s.active !== false,
@@ -239,13 +259,19 @@ export function WorkSchedulesTab() {
             <div>
               <Label>Adicional noturno (%)</Label>
               <Input type="number" value={form.night_bonus_pct} onChange={e => setForm({ ...form, night_bonus_pct: +e.target.value })} />
+              <Label>Início janela noturna</Label>
+              <Input type="time" value={minToHHMM(form.night_start_min)} onChange={e => setForm({ ...form, night_start_min: hhmmToMin(e.target.value) ?? 1320 })} />
+              <Label>Fim janela noturna</Label>
+              <Input type="time" value={minToHHMM(form.night_end_min)} onChange={e => setForm({ ...form, night_end_min: hhmmToMin(e.target.value) ?? 300 })} />
             </div>
             <div>
               <Label>HE dia útil (%)</Label>
               <Input type="number" value={form.overtime_weekday_pct} onChange={e => setForm({ ...form, overtime_weekday_pct: +e.target.value })} />
             </div>
             <div>
-              <Label>HE domingo (%)</Label>
+              <Label>HE fim de semana (%)</Label>
+              <Input type="number" value={form.overtime_weekend_pct} onChange={e => setForm({ ...form, overtime_weekend_pct: +e.target.value })} />
+              <Label>Adicional domingo (%)</Label>
               <Input type="number" value={form.sunday_bonus_pct} onChange={e => setForm({ ...form, sunday_bonus_pct: +e.target.value })} />
             </div>
             <div>
