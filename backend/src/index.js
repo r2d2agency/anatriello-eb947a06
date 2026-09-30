@@ -95,6 +95,7 @@ import { executeSecretaryFollowups } from './secretary-followup-scheduler.js';
 import { executeSecretaryDigest } from './secretary-digest-scheduler.js';
 import { checkInactivityTimeouts } from './lib/ai-agent-processor.js';
 import { executeScoreCalculation } from './score-scheduler.js';
+import { scanForgottenPunches } from './services/forgotten-punch.js';
 import { requestContext } from './request-context.js';
 import { log, logError } from './logger.js';
 
@@ -731,6 +732,15 @@ app.listen(PORT, () => {
       timezone: 'America/Sao_Paulo'
     });
     console.log('⭐ Promoter score calculator started - runs every 6 hours');
+
+    // Forgotten-punch scan runs hourly; alerts are deduplicated in the database.
+    cron.schedule('0 * * * *', async () => {
+      try {
+        const orgs = await dbQuery('SELECT id FROM organizations');
+        for (const org of orgs.rows) await scanForgottenPunches({ organizationId: org.id });
+      } catch (error) { console.error('⏱️ [CRON] Error scanning forgotten punches:', error); }
+    }, { timezone: 'America/Sao_Paulo' });
+    console.log('⏱️ Forgotten-punch scanner started - runs hourly');
 
     // SmartRoute IA - otimização noturna 20h America/Sao_Paulo para D+1
     cron.schedule('0 20 * * *', async () => {

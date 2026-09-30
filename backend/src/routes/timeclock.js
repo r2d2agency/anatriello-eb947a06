@@ -8,6 +8,7 @@ import { query } from '../db.js';
 import { authenticate } from '../middleware/auth.js';
 import { logError } from '../logger.js';
 import { recalcEmployeePeriod, parseWorkSchedule } from '../services/point-calculator.js';
+import { listForgottenPunchAlerts, resolveForgottenPunchAlert, scanForgottenPunches } from '../services/forgotten-punch.js';
 
 const router = express.Router();
 router.use(authenticate);
@@ -1888,6 +1889,20 @@ router.get('/aej.txt', async (req, res) => {
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     res.send(content);
   } catch (err) { logError('timeclock.aej', err); res.status(500).json({ error: err.message || 'Erro ao gerar AEJ' }); }
+});
+
+// Forgotten punch alerts (admin/RH dashboard)
+router.get('/forgotten-punches', async (req, res) => {
+  try { const organizationId = await resolveOrgId(req); res.json(await listForgottenPunchAlerts({ organizationId, start: req.query.start, end: req.query.end, status: req.query.status })); }
+  catch (err) { logError('timeclock.forgotten.list', err); res.status(500).json({ error: 'Erro ao listar alertas' }); }
+});
+router.post('/forgotten-punches/scan', async (req, res) => {
+  try { const organizationId = await resolveOrgId(req); res.json(await scanForgottenPunches({ organizationId, date: req.body?.date })); }
+  catch (err) { logError('timeclock.forgotten.scan', err); res.status(500).json({ error: 'Erro ao verificar batidas esquecidas' }); }
+});
+router.patch('/forgotten-punches/:id/resolve', async (req, res) => {
+  try { const organizationId = await resolveOrgId(req); const alert = await resolveForgottenPunchAlert(req.params.id, organizationId); if (!alert) return res.status(404).json({ error: 'Alerta não encontrado' }); res.json(alert); }
+  catch (err) { logError('timeclock.forgotten.resolve', err); res.status(500).json({ error: 'Erro ao resolver alerta' }); }
 });
 
 export default router;
