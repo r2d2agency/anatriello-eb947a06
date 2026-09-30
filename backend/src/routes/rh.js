@@ -2279,16 +2279,16 @@ router.get('/holidays', async (req, res) => {
     let sql = `SELECT h.*, to_char(h.holiday_date, 'YYYY-MM-DD') AS holiday_date FROM holidays h WHERE h.organization_id = $1 AND h.active = true`;
 
     if (year) {
-      sql += ` AND EXTRACT(YEAR FROM holiday_date) = $${params.length + 1}`;
+      sql += ` AND EXTRACT(YEAR FROM h.holiday_date) = $${params.length + 1}`;
       params.push(Number(year));
     }
 
     if (type) {
-      sql += ` AND type = $${params.length + 1}`;
+      sql += ` AND h.type = $${params.length + 1}`;
       params.push(type);
     }
 
-    sql += ` ORDER BY holiday_date ASC, name ASC`;
+    sql += ` ORDER BY h.holiday_date ASC, h.name ASC`;
     const r = await query(sql, params);
     res.json(r.rows);
   } catch (err) {
