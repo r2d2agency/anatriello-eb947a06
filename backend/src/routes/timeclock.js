@@ -887,7 +887,7 @@ router.get('/punches/daily-grid', async (req, res) => {
         GROUP BY employee_id, record_date
       )
       SELECT ed.employee_id, ed.full_name, ed.photo_url, ed.company_id, ed.company_name,
-             ed.record_date,
+             to_char(ed.record_date, 'YYYY-MM-DD') AS record_date,
              COALESCE(dp.times_arr, ARRAY[]::text[]) AS times,
              dp.ts_arr AS timestamps
       FROM emp_days ed
@@ -917,16 +917,24 @@ router.get('/punches/daily-grid', async (req, res) => {
       for (let i = 0; i + 1 < ts.length; i += 2) {
         minutes += Math.max(0, Math.round((ts[i + 1] - ts[i]) / 60000));
       }
-      const dateKey = new Date(row.record_date).toISOString().slice(0, 10);
+      // record_date já vem como 'YYYY-MM-DD' do banco. Não passar por Date/UTC:
+      // isso deslocaria a chave para o dia anterior em fusos negativos.
+      const dateKey = row.record_date;
       emp.days[dateKey] = { times, minutes, punch_count: times.length };
       emp.total_minutes += minutes;
     }
 
-    // Lista de datas do intervalo
+    // Lista de datas do intervalo. Datas civis não passam por Date/UTC:
+    // em fusos negativos isso voltaria um dia (30/09 em vez de 01/10).
     const days = [];
-    const s = new Date(start); const e = new Date(end);
-    for (let d = new Date(s); d <= e; d.setDate(d.getDate() + 1)) {
-      days.push(d.toISOString().slice(0, 10));
+    const s = new Date(`${start}T00:00:00Z`);
+    const last = new Date(`${end}T00:00:00Z`);
+    if (!Number.isNaN(s.getTime()) && !Number.isNaN(last.getTime())) {
+      for (let d = s; d <= last; d = new Date(d.getTime() + 86400000)) {
+        days.push(d.toISOString().slice(0, 10));
+      }
+    } else {
+      days.push(start, end);
     }
 
     res.json({ days, employees: Array.from(byEmp.values()) });

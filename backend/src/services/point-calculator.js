@@ -4,6 +4,21 @@
 
 import { query } from '../db.js';
 
+// --- helpers de data civil ---
+// Datas do banco (DATE) não devem passar por new Date()/toISOString(): a
+// conversão para UTC pode devolver o dia anterior em fusos negativos.
+const normalizeCivilDate = (value) => {
+  if (!value) return null;
+  if (typeof value === 'string') return value.slice(0, 10);
+  if (value instanceof Date) {
+    const y = value.getFullYear();
+    const m = String(value.getMonth() + 1).padStart(2, '0');
+    const d = String(value.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+  return null;
+};
+
 // --- helpers de tempo ---
 const toMin = (hhmm) => {
   if (!hhmm) return null;
@@ -316,7 +331,7 @@ export async function recalcEmployeePeriod({ organizationId, employeeId, startDa
     schedule_json: row.schedule_json,
     kind: row.ws_kind,
     cycle_pattern: row.cycle_pattern,
-    cycle_start_date: row.cycle_start_date ? new Date(row.cycle_start_date).toISOString().slice(0, 10) : null,
+    cycle_start_date: normalizeCivilDate(row.cycle_start_date),
   } : row.work_schedule;
 
   let rules = {
