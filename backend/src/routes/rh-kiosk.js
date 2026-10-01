@@ -2,6 +2,22 @@ import express from 'express';
 import { query } from '../db.js';
 import { authenticate } from '../middleware/auth.js';
 import { logError } from '../logger.js';
+import { verifyFace } from '../services/face-match.js';
+
+/** Lê a configuração de biometria da organização, tolerando schemas antigos. */
+async function loadFacialConfig(orgId) {
+  try {
+    const r = await query(
+      `SELECT enabled, use_for_attendance, min_confidence, allow_manual_fallback
+       FROM facial_recognition_config WHERE organization_id = $1 LIMIT 1`,
+      [orgId]
+    );
+    return r.rows[0] || null;
+  } catch (err) {
+    if (err.code === '42P01' || err.code === '42703') return null;
+    throw err;
+  }
+}
 
 const router = express.Router();
 router.use(authenticate);
@@ -143,15 +159,56 @@ router.post('/punch', async (req, res) => {
     const orgId = await resolveOrgId(req);
     if (!orgId) return res.status(400).json({ error: 'Organização não identificada' });
 
-    const { employee_id, punch_type, latitude, longitude, accuracy_meters, selfie_url, match_score } = req.body || {};
+    const { employee_id, punch_type, latitude, longitude, accuracy_meters, selfie_url, face_descriptor } = req.body || {};
     if (!employee_id) return res.status(400).json({ error: 'employee_id obrigatório' });
 
     // Verify employee belongs to org
     const emp = await query(
-      `SELECT id, full_name FROM employees WHERE id = $1 AND organization_id = $2 LIMIT 1`,
+      `SELECT id, full_name, face_descriptor, facial_required
+       FROM employees WHERE id = $1 AND organization_id = $2 LIMIT 1`,
       [employee_id, orgId]
     );
     if (!emp.rows[0]) return res.status(404).json({ error: 'Colaborador não encontrado' });
+
+    // ===== FACIAL VALIDATION =====
+    // Sempre que o colaborador tiver rosto cadastrado, o ponto só é liberado
+    // se o descritor enviado pela câmera bater com o cadastro. O `match_score`
+    // do navegador não é considerado: viria do próprio dispositivo que estaria
+    // registrando o ponto, ou seja, de quem tentasse fraudar o registro.
+    const facialCfg = await loadFacialConfig(orgId);
+    const enrolled = emp.rows[0].face_descriptor;
+    const hasEnrollment = !!enrolled;
+    const orgRequires = !!(facialCfg?.enabled && facialCfg?.use_for_attendance);
+    const override = emp.rows[0].facial_required;
+    const facialRequired = override === true ? true : override === false ? false : (orgRequires || hasEnrollment);
+
+    let faceScore = null;
+    if (facialRequired) {
+      if (!hasEnrollment) {
+        const allowFallback = facialCfg?.allow_manual_fallback !== false;
+        if (!allowFallback) {
+          return res.status(403).json({
+            error: 'Biometria facial obrigatória, mas este colaborador ainda não possui cadastro facial.',
+            code: 'FACIAL_ENROLLMENT_REQUIRED',
+          });
+        }
+      } else {
+        const threshold = Number(facialCfg?.min_confidence ?? 70);
+        const check = verifyFace(face_descriptor, enrolled, threshold);
+        faceScore = check.score;
+
+        if (!check.ok) {
+          return res.status(403).json({
+            error: check.reason === 'descriptor_mismatch'
+              ? 'Não foi possível validar o rosto reconhecido. Tente novamente.'
+              : 'Rosto não reconhecido. Aproxime-se e tente novamente.',
+            code: check.reason === 'descriptor_mismatch' ? 'FACE_DESCRIPTOR_INVALID' : 'FACE_NOT_RECOGNIZED',
+            match_score: check.score,
+            threshold,
+          });
+        }
+      }
+    }
 
     // Auto-suggest punch type if not provided
     let ptype = punch_type;
@@ -194,7 +251,7 @@ router.post('/punch', async (req, res) => {
         req.headers['user-agent'] || 'kiosk',
         req.ip,
         selfie_url || null,
-        match_score != null ? `Kiosk facial (match ${match_score}%)` : 'Kiosk facial',
+        faceScore != null ? `Kiosk facial (match ${faceScore}%)` : 'Kiosk facial',
       ]
     );
 

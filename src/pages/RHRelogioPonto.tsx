@@ -20,6 +20,8 @@ interface Matched {
   score: number;
   distance: number;
   selfie: string;
+  /** Descritor do rosto capturado, revalidado pelo servidor antes do ponto. */
+  descriptor: number[];
 }
 
 const PUNCH_LABELS: Record<string, string> = {
@@ -159,7 +161,7 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
             const d = euclideanDistance(emp.descriptor, result.descriptor);
             const score = d <= 0.6 ? 100 - (d / 0.6) * 40 : d <= 1 ? 60 - ((d - 0.6) / 0.4) * 60 : 0;
             if (!best || d < best.distance) {
-              best = { employee: emp, score: Math.round(score), distance: d, selfie: "" };
+              best = { employee: emp, score: Math.round(score), distance: d, selfie: "", descriptor: result.descriptor };
             }
           }
           if (best && best.distance <= 0.6) {
@@ -262,7 +264,7 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
           longitude: coords?.longitude ?? null,
           accuracy_meters: coords?.accuracy ?? null,
           selfie_url: matched.selfie,
-          match_score: matched.score,
+          face_descriptor: matched.descriptor,
         },
       });
       setConfirmation({
