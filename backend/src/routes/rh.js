@@ -1277,7 +1277,7 @@ router.get('/consolidated-timesheet', async (req, res) => {
         e.cpf,
         e.position,
         e.work_schedule,
-        (tp.punched_at AT TIME ZONE 'America/Sao_Paulo')::date as record_date,
+        to_char((tp.punched_at AT TIME ZONE 'America/Sao_Paulo')::date, 'YYYY-MM-DD') as record_date,
         json_agg(json_build_object(
           'id', tp.id, 'punch_type', tp.punch_type, 'punched_at', tp.punched_at,
           'geo_status', tp.geo_status, 'is_offline', tp.is_offline, 'pdv_name', p.name,
