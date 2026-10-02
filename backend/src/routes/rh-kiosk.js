@@ -92,7 +92,7 @@ router.get('/enrollments', async (req, res) => {
     if (!orgId) return res.status(400).json({ error: 'Organização não identificada' });
 
     const r = await query(
-      `SELECT id, full_name, photo_url, face_descriptor
+      `SELECT id, full_name, photo_url, face_descriptor, facial_required
        FROM employees
        WHERE organization_id = $1
          AND COALESCE(NULLIF(TRIM(status::text), ''), 'ativo') NOT IN ('desligado','inativo','inactive','terminated','demitido')
@@ -114,12 +114,22 @@ router.get('/enrollments', async (req, res) => {
           id: row.id,
           full_name: row.full_name,
           photo_url: row.photo_url || null,
+          facial_required: row.facial_required === true,
           descriptor: desc.map((n) => Number(n)).filter((n) => Number.isFinite(n)),
         };
       })
       .filter(Boolean);
 
-    res.json({ items });
+    // A sensibilidade vem da config da organização, para que o tablet não
+    // valide com um limiar fixo diferente do configurado no admin.
+    let minConfidence = 70;
+    const cfg = await loadFacialConfig(orgId);
+    if (cfg?.min_confidence != null) {
+      const parsed = Number(cfg.min_confidence);
+      if (Number.isFinite(parsed)) minConfidence = parsed;
+    }
+
+    res.json({ items, min_confidence: minConfidence });
   } catch (err) {
     logError('rh.kiosk.enrollments', err);
     res.status(500).json({ error: 'Erro ao carregar biometrias' });

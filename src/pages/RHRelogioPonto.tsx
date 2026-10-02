@@ -13,6 +13,7 @@ interface Enrollment {
   full_name: string;
   photo_url: string | null;
   descriptor: number[];
+  facial_required?: boolean;
 }
 
 interface Matched {
@@ -42,6 +43,36 @@ function euclideanDistance(a: number[], b: number[]): number {
   return Math.sqrt(s);
 }
 
+/** Curva de distância -> similaridade (0-100). Mesma do backend em face-match.js. */
+function scoreFromDistance(distance: number): number {
+  if (!Number.isFinite(distance) || distance < 0) return 0;
+  if (distance <= 0.6) return 100 - (distance / 0.6) * 40;
+  if (distance <= 1) return 60 - ((distance - 0.6) / 0.4) * 60;
+  return 0;
+}
+
+/** Distância máxima aceita para um limiar de confiança (0-100). */
+function maxDistanceForScore(threshold: number): number {
+  const safe = Math.max(0, Math.min(100, threshold));
+  if (safe >= 60) return ((100 - safe) / 40) * 0.6;
+  return 0.6 + ((60 - safe) / 60) * 0.4;
+}
+
+/**
+ * O quiosque compara 1:N (descobrir QUEM é), o que é mais tolerante que o app
+ * do colaborador, que compara 1:1 (confirmar se é ELE). Por isso o limiar do
+ * quiosque é um pouco mais rígido que a sensibilidade padrão do app (70),
+ * mas não muito: 80 corresponde a distância 0.30 e rejeitaria gente legítima.
+ */
+const KIOSK_MATCH_THRESHOLD = 75;
+
+/**
+ * Distância abaixo da qual o segundo colocado é considerado ambiguo. Se dois
+ * rostos estão praticamente igualmente próximos, não dá para saber qual é a
+ * pessoa — escolher o menor seria adivinhar, e o caminho seguro é recusar.
+ */
+const AMBIGUITY_MARGIN = 0.06;
+
 export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = {}) {
   const { toast } = useToast();
   const navigate = useNavigate();
@@ -51,6 +82,7 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
 
   const [phase, setPhase] = useState<Phase>("idle");
   const [enrollments, setEnrollments] = useState<Enrollment[]>([]);
+  const [minConfidence, setMinConfidence] = useState(KIOSK_MATCH_THRESHOLD);
   const [matched, setMatched] = useState<Matched | null>(null);
   const [nextPunch, setNextPunch] = useState<string>("entrada");
   const [clock, setClock] = useState(new Date());
@@ -138,12 +170,19 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
   }, []);
 
   const loadEnrollments = useCallback(async () => {
-    const res = await api<{ items: Enrollment[] }>(`/api/rh/kiosk/enrollments`);
+    const res = await api<{ items: Enrollment[]; min_confidence?: number }>(`/api/rh/kiosk/enrollments`);
     setEnrollments(res.items || []);
+    // 1:N exige mais rigidez que a sensibilidade do app (1:1). O admin pode
+    // deixar o limiar mais alto, nunca mais frouxo que o padrão do quiosque.
+    const configured = Number(res.min_confidence);
+    const effective = Number.isFinite(configured)
+      ? Math.max(KIOSK_MATCH_THRESHOLD, configured)
+      : KIOSK_MATCH_THRESHOLD;
+    setMinConfidence(effective);
     return res.items || [];
   }, []);
 
-  const runDetection = useCallback(async (items: Enrollment[]) => {
+  const runDetection = useCallback(async (items: Enrollment[], threshold: number) => {
     if (!videoRef.current) return;
     setStatusMsg("Procurando rosto…");
     let attempts = 0;
@@ -154,18 +193,25 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
       try {
         const result = await detectFace(videoRef.current);
         if (result) {
-          // find best match
-          let best: Matched | null = null;
-          for (const emp of items) {
-            if (!emp.descriptor?.length || emp.descriptor.length !== result.descriptor.length) continue;
-            const d = euclideanDistance(emp.descriptor, result.descriptor);
-            const score = d <= 0.6 ? 100 - (d / 0.6) * 40 : d <= 1 ? 60 - ((d - 0.6) / 0.4) * 60 : 0;
-            if (!best || d < best.distance) {
-              best = { employee: emp, score: Math.round(score), distance: d, selfie: "", descriptor: result.descriptor };
-            }
-          }
-          if (best && best.distance <= 0.6) {
-            best.selfie = captureVideoFrame(videoRef.current);
+          // Ordena todos os candidatos por distância, para detectar ambiguidade
+          const candidates = items
+            .filter((emp) => emp.descriptor?.length && emp.descriptor.length === result.descriptor.length)
+            .map((emp) => ({ emp, d: euclideanDistance(emp.descriptor, result.descriptor) }))
+            .sort((x, y) => x.d - y.d);
+
+          const winner = candidates[0];
+          const runnerUp = candidates[1]?.d ?? null;
+          const accepted = winner && winner.d <= maxDistanceForScore(threshold);
+          const ambiguous = accepted && runnerUp !== null && runnerUp < winner.d + AMBIGUITY_MARGIN;
+
+          if (accepted && !ambiguous) {
+            const best: Matched = {
+              employee: winner.emp,
+              score: Math.round(scoreFromDistance(winner.d)),
+              distance: winner.d,
+              selfie: captureVideoFrame(videoRef.current),
+              descriptor: result.descriptor,
+            };
             setMatched(best);
             try {
               const np = await api<{ next: string }>(`/api/rh/kiosk/next-punch/${best.employee.id}`);
@@ -177,12 +223,17 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
             stopCamera();
             return;
           }
+
+          setStatusMsg(
+            ambiguous
+              ? "Rosto ambíguo — aproxime-se do rosto de referência."
+              : "Rosto detectado, aproxime mais…"
+          );
           if (attempts >= 25) {
             setPhase("not_found");
             stopCamera();
             return;
           }
-          setStatusMsg("Rosto detectado, aproxime mais…");
         } else {
           if (attempts >= 30) {
             setPhase("not_found");
@@ -230,13 +281,13 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
         await videoRef.current.play();
       }
       setPhase("detecting");
-      runDetection(items);
+      runDetection(items, minConfidence);
     } catch (err: any) {
       console.error(err);
       toast({ title: "Erro ao abrir câmera", description: err?.message || "Verifique permissões", variant: "destructive" });
       setPhase("error");
     }
-  }, [enrollments, loadEnrollments, runDetection, toast]);
+  }, [enrollments, loadEnrollments, minConfidence, runDetection, toast]);
 
   const confirmPunch = useCallback(async () => {
     if (!matched) return;
