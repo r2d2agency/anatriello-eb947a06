@@ -115,13 +115,22 @@ async function switchFaceBackend(backend: string): Promise<boolean> {
   }
 }
 
+export interface DetectOptions {
+  /** Lado da entrada do TinyFaceDetector. Maior = mais preciso e mais lento. */
+  inputSize?: number;
+  /** Confiança mínima do detector (0-1) para aceitar o rosto. */
+  scoreThreshold?: number;
+}
+
 async function runFaceDetection(
-  input: HTMLVideoElement | HTMLImageElement | HTMLCanvasElement
+  input: HTMLVideoElement | HTMLImageElement | HTMLCanvasElement,
+  options: DetectOptions = {}
 ): Promise<FaceDetectionResult | null> {
+  const { inputSize = 320, scoreThreshold = 0.5 } = options;
   // TinyFaceDetector é ~5-10x mais rápido que SSD MobileNet em CPU (mobile).
   // Usa SSD como fallback caso o Tiny falhe.
   let detection = await faceapi
-    .detectSingleFace(input, new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.5 }))
+    .detectSingleFace(input, new faceapi.TinyFaceDetectorOptions({ inputSize, scoreThreshold }))
     .withFaceLandmarks()
     .withFaceDescriptor();
 
@@ -238,18 +247,61 @@ function maxDistanceForThreshold(threshold: number): number {
  * Detect face from an HTMLVideoElement or HTMLImageElement and extract descriptor
  */
 export async function detectFace(
-  input: HTMLVideoElement | HTMLImageElement | HTMLCanvasElement
+  input: HTMLVideoElement | HTMLImageElement | HTMLCanvasElement,
+  options?: DetectOptions
 ): Promise<FaceDetectionResult | null> {
   await loadFaceModels();
 
   try {
-    return await runFaceDetection(input);
+    return await runFaceDetection(input, options);
   } catch (error) {
     const switchedToCpu = activeFaceBackend !== 'cpu' && await switchFaceBackend('cpu');
     if (!switchedToCpu) throw error;
 
-    return runFaceDetection(input);
+    return runFaceDetection(input, options);
   }
+}
+
+/**
+ * Detecta o rosto em vários quadros seguidos e devolve o descritor médio.
+ *
+ * Um único quadro é ruidoso: variação de iluminação, ruído do sensor e a própria
+ * quantização do modelo fazem a distância oscilar. Média de N quadros reduz
+ * bastante a chance de uma medição infeliz passar do limiar por acidente — e
+ * também das medições ruins que afastam um rosto legítimo.
+ */
+export async function detectFaceStable(
+  input: HTMLVideoElement | HTMLImageElement | HTMLCanvasElement,
+  samples = 5,
+  options: DetectOptions = {}
+): Promise<FaceDetectionResult | null> {
+  const out: FaceDetectionResult[] = [];
+  for (let i = 0; i < samples; i++) {
+    const r = await detectFace(input, options);
+    if (r) out.push(r);
+  }
+  // Com poucas detecções a média fica instável. É melhor devolver null e deixar
+  // o chamador tentar de novo do que medir em cima de um quadro só.
+  if (out.length < Math.min(3, samples)) return null;
+
+  const len = out[0].descriptor.length;
+  const mean = new Array<number>(len).fill(0);
+  for (const r of out) {
+    for (let i = 0; i < len; i++) mean[i] += r.descriptor[i] / out.length;
+  }
+
+  // O descritor médio não tem geometria, então o resultado exibido (box e
+  // landmarks) vem do quadro cujo descritor está mais próximo da média.
+  let best = out[0];
+  let bestD = Infinity;
+  for (const r of out) {
+    let sum = 0;
+    for (let i = 0; i < len; i++) sum += (r.descriptor[i] - mean[i]) ** 2;
+    const d = Math.sqrt(sum);
+    if (d < bestD) { bestD = d; best = r; }
+  }
+
+  return { ...best, descriptor: mean };
 }
 
 /**
@@ -340,5 +392,5 @@ export function captureVideoFrame(video: HTMLVideoElement): string {
   const ctx = canvas.getContext('2d');
   if (!ctx) return '';
   ctx.drawImage(video, 0, 0);
-  return canvas.toDataURL('image/jpeg', 0.85);
+  return canvas.toDataURL('image/jpeg', 0.92);
 }

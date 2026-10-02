@@ -5,7 +5,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Camera, CheckCircle2, Clock, Loader2, ScanFace, XCircle, ArrowLeft, LogOut } from "lucide-react";
 import { api } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
-import { loadFaceModels, detectFace, captureVideoFrame } from "@/lib/facial-recognition";
+import { loadFaceModels, detectFaceStable, captureVideoFrame } from "@/lib/facial-recognition";
 import { useNavigate } from "react-router-dom";
 
 interface Enrollment {
@@ -79,6 +79,42 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const detectLoopRef = useRef<number | null>(null);
+  const landmarksCanvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  // Desenha os 68 pontos faciais sobre a câmera enquanto a busca acontece.
+  const drawFaceLandmarks = useCallback((landmarks: number[][], box?: { x: number; y: number; width: number; height: number }) => {
+    const canvas = landmarksCanvasRef.current;
+    const video = videoRef.current;
+    if (!canvas || !video || !landmarks?.length) return;
+    const rect = video.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+    const scaleX = rect.width / (video.videoWidth || rect.width);
+    const scaleY = rect.height / (video.videoHeight || rect.height);
+    canvas.width = rect.width;
+    canvas.height = rect.height;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    // O vídeo é espelhado (scale-x-[-1]); o canvas precisa do mesmo flip.
+    ctx.save();
+    ctx.translate(canvas.width, 0);
+    ctx.scale(-1, 1);
+    ctx.fillStyle = "#22d3ee";
+    ctx.strokeStyle = "#0e7490";
+    ctx.lineWidth = 1.5;
+    const step = Math.max(1, Math.round(landmarks.length / 68));
+    for (let i = 0; i < landmarks.length; i += step) {
+      const p = landmarks[i];
+      if (!p) continue;
+      const x = p[0] * scaleX;
+      const y = p[1] * scaleY;
+      ctx.beginPath();
+      ctx.arc(x, y, 1.8, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    }
+    ctx.restore();
+  }, []);
 
   const [phase, setPhase] = useState<Phase>("idle");
   const [enrollments, setEnrollments] = useState<Enrollment[]>([]);
@@ -89,6 +125,12 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
   const [confirmation, setConfirmation] = useState<{ name: string; type: string; time: string } | null>(null);
   const [statusMsg, setStatusMsg] = useState<string>("");
   const [camWarning, setCamWarning] = useState<string | null>(null);
+  const [landmarks, setLandmarks] = useState<number[][] | null>(null);
+
+  // Redesenha os pontos quando a câmera ou o rosto mudam
+  useEffect(() => {
+    drawFaceLandmarks(landmarks);
+  }, [landmarks, drawFaceLandmarks]);
 
   // live clock
   useEffect(() => {
@@ -183,6 +225,7 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
   }, []);
 
   const runDetection = useCallback(async (items: Enrollment[], threshold: number) => {
+    setLandmarks(null);
     if (!videoRef.current) return;
     setStatusMsg("Procurando rosto…");
     let attempts = 0;
@@ -191,8 +234,13 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
       if (!videoRef.current) return;
       attempts++;
       try {
-        const result = await detectFace(videoRef.current);
+        const result = await detectFaceStable(videoRef.current, 5, {
+        inputSize: 512,
+        scoreThreshold: 0.5,
+      });
         if (result) {
+          // Mostra os pontos faciais enquanto compara com o banco
+          setLandmarks(result.landmarks);
           // Ordena todos os candidatos por distância, para detectar ambiguidade
           const candidates = items
             .filter((emp) => emp.descriptor?.length && emp.descriptor.length === result.descriptor.length)
@@ -245,7 +293,7 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
       } catch (e) {
         console.error(e);
       }
-      detectLoopRef.current = window.setTimeout(loop, 600);
+      detectLoopRef.current = window.setTimeout(loop, 200);
     };
 
     loop();
@@ -270,7 +318,14 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
       const alive = stream?.getVideoTracks().some((t) => t.readyState === "live");
       if (!stream || !alive) {
         stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } },
+          // 1080p dá ao detector um rosto maior no quadro; em retrato, mais
+          // pixels se traduzem em descritor mais estável.
+          video: {
+            facingMode: "user",
+            width: { ideal: 1920 },
+            height: { ideal: 1080 },
+            frameRate: { ideal: 30 },
+          },
           audio: false,
         });
         streamRef.current = stream;
@@ -407,17 +462,22 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
         )}
 
         {(phase === "loading" || phase === "detecting" || phase === "camera") && (
-          <div className="w-full max-w-2xl">
+          <div className="w-full max-w-3xl">
             <Card className="bg-black/40 border-white/10 overflow-hidden">
-              <div className="relative aspect-video bg-black">
+              <div className="relative aspect-[3/4] sm:aspect-video bg-black max-h-[70vh]">
                 <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover scale-x-[-1]" />
+                {/* Moldura guia — ocupa a maior parte da altura, cabe um rosto inteiro */}
                 <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
-                  <div className="w-64 h-80 border-4 border-primary/60 rounded-[50%] shadow-[0_0_40px_rgba(59,130,246,0.4)]" />
+                  <div className="h-[78%] aspect-[3/4] max-w-[70%] border-4 border-primary/70 rounded-[45%] shadow-[0_0_50px_rgba(59,130,246,0.45)]" />
                 </div>
+                {/* Marca��ão dos pontos faciais, enquanto a busca no banco acontece */}
+                <canvas ref={landmarksCanvasRef} className="absolute inset-0 w-full h-full pointer-events-none" />
                 <div className="absolute bottom-4 left-0 right-0 flex justify-center">
-                  <div className="bg-black/70 backdrop-blur px-4 py-2 rounded-full flex items-center gap-2">
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    <span className="text-sm">{statusMsg}</span>
+                  {/* Fundo escuro + texto claro: a tela do quiosque é escura e o
+                      texto herdava cor escura, ficando ilegível. */}
+                  <div className="bg-black/80 backdrop-blur px-5 py-2.5 rounded-full flex items-center gap-2 border border-white/10">
+                    <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                    <span className="text-sm text-white font-medium">{statusMsg}</span>
                   </div>
                 </div>
               </div>
@@ -504,8 +564,13 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
                   <XCircle className="h-14 w-14 text-amber-400" />
                 </div>
               </div>
-              <h2 className="text-2xl font-bold mb-2">Não conseguimos identificar</h2>
-              <p className="text-white/70 mb-6">Verifique a iluminação e tente novamente. Se persistir, procure o RH.</p>
+              <h2 className="text-2xl font-bold mb-2">Colaborador não encontrado</h2>
+              <p className="text-white/70 mb-2">
+                Nenhum rosto cadastrado corresponde ao rosto apresentado.
+              </p>
+              <p className="text-white/70 mb-6">
+                Se o seu rosto ainda não foi cadastrado, procure o RH para registrar sua biometria.
+              </p>
               <Button size="lg" onClick={startCapture} className="w-full h-16 text-lg">
                 <Camera className="h-5 w-5 mr-2" /> Tentar novamente
               </Button>
