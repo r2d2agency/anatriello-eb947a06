@@ -5,7 +5,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Camera, CheckCircle2, Clock, Loader2, ScanFace, XCircle, ArrowLeft, LogOut } from "lucide-react";
 import { api } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
-import { loadFaceModels, detectFaceStable, captureVideoFrame } from "@/lib/facial-recognition";
+import { loadFaceModels, detectFace, detectFaceStable, captureVideoFrame } from "@/lib/facial-recognition";
 import { useNavigate } from "react-router-dom";
 
 interface Enrollment {
@@ -72,6 +72,9 @@ const KIOSK_MATCH_THRESHOLD = 75;
  * pessoa — escolher o menor seria adivinhar, e o caminho seguro é recusar.
  */
 const AMBIGUITY_MARGIN = 0.06;
+// Folga sobre o limiar de aceite para decidir quando vale pagar a confirmação
+// cara (média de 5 quadros). Medidas de quadros únicos variam ~0.05.
+const STABLE_CONFIRM_SLACK = 1.25;
 
 export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = {}) {
   const { toast } = useToast();
@@ -234,66 +237,99 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
       if (!videoRef.current) return;
       attempts++;
       try {
-        const result = await detectFaceStable(videoRef.current, 5, {
-        inputSize: 512,
-        scoreThreshold: 0.5,
-      });
-        if (result) {
-          // Mostra os pontos faciais enquanto compara com o banco
-          setLandmarks(result.landmarks);
-          // Ordena todos os candidatos por distância, para detectar ambiguidade
-          const candidates = items
-            .filter((emp) => emp.descriptor?.length && emp.descriptor.length === result.descriptor.length)
-            .map((emp) => ({ emp, d: euclideanDistance(emp.descriptor, result.descriptor) }))
-            .sort((x, y) => x.d - y.d);
+        // Etapa 1 (barata): um único quadro, detector pequeno. Serve só para
+        // decidir se vale a pena confirmar. Medir a média a cada ciclo custaria
+        // 5 detecções mesmo quando o rosto ainda nem é o da pessoa esperada.
+        const quick = await detectFace(videoRef.current, {
+          inputSize: 320,
+          scoreThreshold: 0.5,
+        });
 
-          const winner = candidates[0];
-          const runnerUp = candidates[1]?.d ?? null;
-          const accepted = winner && winner.d <= maxDistanceForScore(threshold);
-          const ambiguous = accepted && runnerUp !== null && runnerUp < winner.d + AMBIGUITY_MARGIN;
-
-          if (accepted && !ambiguous) {
-            const best: Matched = {
-              employee: winner.emp,
-              score: Math.round(scoreFromDistance(winner.d)),
-              distance: winner.d,
-              selfie: captureVideoFrame(videoRef.current),
-              descriptor: result.descriptor,
-            };
-            setMatched(best);
-            try {
-              const np = await api<{ next: string }>(`/api/rh/kiosk/next-punch/${best.employee.id}`);
-              setNextPunch(np.next || "entrada");
-            } catch {
-              setNextPunch("entrada");
-            }
-            setPhase("matched");
-            stopCamera();
-            return;
-          }
-
-          setStatusMsg(
-            ambiguous
-              ? "Rosto ambíguo — aproxime-se do rosto de referência."
-              : "Rosto detectado, aproxime mais…"
-          );
-          if (attempts >= 25) {
-            setPhase("not_found");
-            stopCamera();
-            return;
-          }
-        } else {
-          if (attempts >= 30) {
+        if (!quick) {
+          setLandmarks(null);
+          if (attempts >= 60) {
             setPhase("not_found");
             stopCamera();
             return;
           }
           setStatusMsg("Posicione o rosto no centro…");
+          detectLoopRef.current = window.setTimeout(loop, 120);
+          return;
         }
+
+        setLandmarks(quick.landmarks);
+
+        const rank = (descriptor: number[]) =>
+          items
+            .filter((emp) => emp.descriptor?.length && emp.descriptor.length === descriptor.length)
+            .map((emp) => ({ emp, d: euclideanDistance(emp.descriptor, descriptor) }))
+            .sort((x, y) => x.d - y.d);
+
+        const quickRank = rank(quick.descriptor);
+        const quickBest = quickRank[0];
+        const acceptMax = maxDistanceForScore(threshold);
+
+        // Só confirma quando o quadro único já está perto o suficiente. A margem
+        // dá espaço para a média de vários quadros corrigir a medição.
+        if (!quickBest || quickBest.d > acceptMax * STABLE_CONFIRM_SLACK) {
+          if (attempts >= 40) {
+            setPhase("not_found");
+            stopCamera();
+            return;
+          }
+          setStatusMsg("Rosto detectado, aproxime mais…");
+          detectLoopRef.current = window.setTimeout(loop, 120);
+          return;
+        }
+
+        // Etapa 2 (cara): média de 5 quadros em alta resolução. É aqui que a
+        // decisão final é tomada, nunca com um único quadro.
+        const result = await detectFaceStable(videoRef.current, 5, {
+          inputSize: 512,
+          scoreThreshold: 0.5,
+        });
+
+        const candidates = result ? rank(result.descriptor) : [];
+        const winner = candidates[0];
+        const runnerUp = candidates[1]?.d ?? null;
+        const accepted = winner && winner.d <= acceptMax;
+        const ambiguous = accepted && runnerUp !== null && runnerUp < winner.d + AMBIGUITY_MARGIN;
+
+        if (result && accepted && !ambiguous) {
+          const best: Matched = {
+            employee: winner.emp,
+            score: Math.round(scoreFromDistance(winner.d)),
+            distance: winner.d,
+            selfie: captureVideoFrame(videoRef.current),
+            descriptor: result.descriptor,
+          };
+          setMatched(best);
+          try {
+            const np = await api<{ next: string }>(`/api/rh/kiosk/next-punch/${best.employee.id}`);
+            setNextPunch(np.next || "entrada");
+          } catch {
+            setNextPunch("entrada");
+          }
+          setPhase("matched");
+          stopCamera();
+          return;
+        }
+
+        if (attempts >= 40) {
+          setPhase("not_found");
+          stopCamera();
+          return;
+        }
+        setStatusMsg(
+          ambiguous
+            ? "Rosto ambíguo — aproxime-se do rosto de referência."
+            : "Rosto detectado, aproxime mais…"
+        );
+        detectLoopRef.current = window.setTimeout(loop, 120);
       } catch (e) {
         console.error(e);
       }
-      detectLoopRef.current = window.setTimeout(loop, 200);
+      detectLoopRef.current = window.setTimeout(loop, 120);
     };
 
     loop();
