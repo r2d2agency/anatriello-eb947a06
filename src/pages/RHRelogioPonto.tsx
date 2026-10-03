@@ -422,7 +422,31 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
       setPhase("success");
       setTimeout(() => setPhase("idle"), 5000);
     } catch (err: any) {
-      toast({ title: "Erro ao registrar ponto", description: err?.message || "Tente novamente", variant: "destructive" });
+      // O servidor responde 403 com score/limiar/distância calculada. Mostrar
+      // esses números é a diferença entre "o sistema se contradiz" e um
+      // diagnóstico real — o quiosque não tem console para consultá-los.
+      const face = err?.response;
+      const isFaceRejection =
+        face?.code === "FACE_NOT_RECOGNIZED" || face?.code === "FACE_DESCRIPTOR_INVALID";
+      if (isFaceRejection) {
+        const parts = [
+          `similaridade ${face.match_score}%`,
+          `mínimo exigido ${face.threshold}%`,
+        ];
+        if (Number.isFinite(Number(face.distance))) parts.push(`distância ${face.distance}`);
+        if (Number.isFinite(Number(face.client_distance))) parts.push(`quiosque mediu ${face.client_distance}`);
+        toast({
+          title: "Servidor não confirmou o rosto",
+          description: `${face.error} (${parts.join(" · ")}) — o quiosque havia aprovado este mesmo rosto.`,
+          variant: "destructive",
+          duration: 12000,
+        });
+        setStatusMsg(
+          `Divergência: quiosque aprovou, servidor não. ${parts.join(" · ")}.`
+        );
+      } else {
+        toast({ title: "Erro ao registrar ponto", description: err?.message || "Tente novamente", variant: "destructive" });
+      }
       setPhase("matched");
     }
   }, [matched, nextPunch, toast]);

@@ -236,6 +236,14 @@ router.post('/punch', async (req, res) => {
             code: check.reason === 'descriptor_mismatch' ? 'FACE_DESCRIPTOR_INVALID' : 'FACE_NOT_RECOGNIZED',
             match_score: check.score,
             threshold,
+            // Devolvidos para o quiosque exibir: sem console disponível no
+            // tablet, a tela é o único lugar onde o diagnóstico aparece.
+            distance: check.distance,
+            max_distance: faceLog.max_distance,
+            client_distance: faceLog.client_distance,
+            client_score: faceLog.client_score,
+            enrolled_len: faceLog.enrolled_len,
+            captured_len: faceLog.captured_len,
           });
         }
       }
