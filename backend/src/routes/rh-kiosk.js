@@ -1,8 +1,8 @@
 import express from 'express';
 import { query } from '../db.js';
 import { authenticate } from '../middleware/auth.js';
-import { logError } from '../logger.js';
-import { verifyFace } from '../services/face-match.js';
+import { logError, logInfo, logWarn } from '../logger.js';
+import { verifyFace, maxDistanceForScore, normalizeDescriptor } from '../services/face-match.js';
 
 /** Lê a configuração de biometria da organização, tolerando schemas antigos. */
 async function loadFacialConfig(orgId) {
@@ -206,6 +206,27 @@ router.post('/punch', async (req, res) => {
         const threshold = Number(facialCfg?.min_confidence ?? 70);
         const check = verifyFace(face_descriptor, enrolled, threshold);
         faceScore = check.score;
+
+        // Registra a distância calculada em TODO resultado. Sem isso é impossível
+        // reconciliar uma aprovação do tablet com uma recusa daqui: os dois lados
+        // usam a mesma curva, mas só com o número dá para saber se divergem.
+        const faceLog = {
+          employee_id: employee_id,
+          distance: check.distance,
+          threshold,
+          score: check.score,
+          max_distance: Math.round(maxDistanceForScore(threshold) * 1000) / 1000,
+          reason: check.reason,
+          enrolled_len: normalizeDescriptor(enrolled).length,
+          captured_len: normalizeDescriptor(face_descriptor).length,
+          client_distance: req.body?.client_distance ?? null,
+          client_score: req.body?.client_score ?? null,
+        };
+        if (check.ok) {
+          logInfo('rh.kiosk.punch.face_ok', faceLog);
+        } else {
+          logWarn('rh.kiosk.punch.face_rejected', faceLog);
+        }
 
         if (!check.ok) {
           return res.status(403).json({

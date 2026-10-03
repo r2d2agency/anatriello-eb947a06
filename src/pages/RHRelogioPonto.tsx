@@ -407,6 +407,11 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
           accuracy_meters: coords?.accuracy ?? null,
           selfie_url: matched.selfie,
           face_descriptor: matched.descriptor,
+          // Diagnóstico: o servidor recalcula a distância de qualquer forma e
+          // registra no log. Enviar a do tablet permite comparar as duas na mesma
+          // linha e ver se elas divergem. Não é usado na decisão.
+          client_distance: matched.distance,
+          client_score: matched.score,
         },
       });
       setConfirmation({
