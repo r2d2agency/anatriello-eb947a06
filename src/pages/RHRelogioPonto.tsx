@@ -75,6 +75,12 @@ const AMBIGUITY_MARGIN = 0.06;
 // Folga sobre o limiar de aceite para decidir quando vale pagar a confirmação
 // cara (média de 5 quadros). Medidas de quadros únicos variam ~0.05.
 const STABLE_CONFIRM_SLACK = 1.25;
+// Tempo total de busca antes de desistir. Medido em conjunto com o intervalo
+// abaixo: 45 tentativas a 150ms dá ~7s, o suficiente para a pessoa se
+// posicionar sem fazer o colaborador esperar quase um minuto.
+const MAX_ATTEMPTS_NO_FACE = 45;
+const MAX_ATTEMPTS_FACE_FOUND = 30;
+const RETRY_DELAY_MS = 150;
 
 export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = {}) {
   const { toast } = useToast();
@@ -247,13 +253,13 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
 
         if (!quick) {
           setLandmarks(null);
-          if (attempts >= 60) {
+          if (attempts >= MAX_ATTEMPTS_NO_FACE) {
             setPhase("not_found");
             stopCamera();
             return;
           }
           setStatusMsg("Posicione o rosto no centro…");
-          detectLoopRef.current = window.setTimeout(loop, 120);
+          detectLoopRef.current = window.setTimeout(loop, RETRY_DELAY_MS);
           return;
         }
 
@@ -272,13 +278,13 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
         // Só confirma quando o quadro único já está perto o suficiente. A margem
         // dá espaço para a média de vários quadros corrigir a medição.
         if (!quickBest || quickBest.d > acceptMax * STABLE_CONFIRM_SLACK) {
-          if (attempts >= 40) {
+          if (attempts >= MAX_ATTEMPTS_FACE_FOUND) {
             setPhase("not_found");
             stopCamera();
             return;
           }
           setStatusMsg("Rosto detectado, aproxime mais…");
-          detectLoopRef.current = window.setTimeout(loop, 120);
+          detectLoopRef.current = window.setTimeout(loop, RETRY_DELAY_MS);
           return;
         }
 
@@ -315,7 +321,7 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
           return;
         }
 
-        if (attempts >= 40) {
+        if (attempts >= MAX_ATTEMPTS_FACE_FOUND) {
           setPhase("not_found");
           stopCamera();
           return;
@@ -325,11 +331,11 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
             ? "Rosto ambíguo — aproxime-se do rosto de referência."
             : "Rosto detectado, aproxime mais…"
         );
-        detectLoopRef.current = window.setTimeout(loop, 120);
+        detectLoopRef.current = window.setTimeout(loop, RETRY_DELAY_MS);
       } catch (e) {
         console.error(e);
       }
-      detectLoopRef.current = window.setTimeout(loop, 120);
+      detectLoopRef.current = window.setTimeout(loop, RETRY_DELAY_MS);
     };
 
     loop();
@@ -342,7 +348,10 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
     setStatusMsg("Carregando reconhecimento facial…");
     try {
       await loadFaceModels();
-      const items = enrollments.length ? enrollments : await loadEnrollments();
+      // Sempre relê do servidor, mesmo com descritores já em cache. Ler só a
+      // lista descartava a sensibilidade configurada, e o tablet acabava
+      // validando com 75 enquanto o servidor exigia 85.
+      const items = await loadEnrollments();
       if (!items.length) {
         toast({ title: "Nenhum colaborador com biometria cadastrada", variant: "destructive" });
         setPhase("idle");

@@ -120,23 +120,63 @@ export interface DetectOptions {
   inputSize?: number;
   /** Confiança mínima do detector (0-1) para aceitar o rosto. */
   scoreThreshold?: number;
+  /** Lado maior do canvas de trabalho ao reduzir o vídeo. Menor = mais rápido. */
+  workSize?: number;
+}
+
+/**
+ * Canvas de trabalho reaproveitado entre quadros.
+ *
+ * Detectar direto no <video> faz o navegador reescalar 1920x1080 a cada
+ * quadro, o que domina o tempo do ciclo no quiosque. Reduzir uma vez para um
+ * canvas pequeno e detectar nele corta esse custo por um fator grande.
+ */
+let workCanvas: HTMLCanvasElement | null = null;
+
+function getWorkCanvas(width: number, height: number): HTMLCanvasElement {
+  if (!workCanvas) workCanvas = document.createElement('canvas');
+  if (workCanvas.width !== width || workCanvas.height !== height) {
+    workCanvas.width = width;
+    workCanvas.height = height;
+  }
+  return workCanvas;
+}
+
+/** Reduz o vídeo para um canvas de no máximo `maxSide` pixels no lado maior. */
+function downscale(video: HTMLVideoElement, maxSide: number): HTMLCanvasElement | null {
+  const vw = video.videoWidth;
+  const vh = video.videoHeight;
+  if (!vw || !vh) return null;
+
+  const scale = Math.min(1, maxSide / Math.max(vw, vh));
+  const canvas = getWorkCanvas(Math.round(vw * scale), Math.round(vh * scale));
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  if (!ctx) return null;
+  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+  return canvas;
 }
 
 async function runFaceDetection(
   input: HTMLVideoElement | HTMLImageElement | HTMLCanvasElement,
   options: DetectOptions = {}
 ): Promise<FaceDetectionResult | null> {
-  const { inputSize = 320, scoreThreshold = 0.5 } = options;
+  const { inputSize = 320, scoreThreshold = 0.5, workSize = 640 } = options;
+
+  // Para vídeo, reduz antes de detectar: o custo de reescalar o quadro
+  // inteiro é maior que o de rodar o detector numa imagem menor.
+  const target =
+    input instanceof HTMLVideoElement ? downscale(input, workSize) ?? input : input;
+
   // TinyFaceDetector é ~5-10x mais rápido que SSD MobileNet em CPU (mobile).
   // Usa SSD como fallback caso o Tiny falhe.
   let detection = await faceapi
-    .detectSingleFace(input, new faceapi.TinyFaceDetectorOptions({ inputSize, scoreThreshold }))
+    .detectSingleFace(target, new faceapi.TinyFaceDetectorOptions({ inputSize, scoreThreshold }))
     .withFaceLandmarks()
     .withFaceDescriptor();
 
   if (!detection) {
     detection = await faceapi
-      .detectSingleFace(input, new faceapi.SsdMobilenetv1Options({ minConfidence: 0.5 }))
+      .detectSingleFace(target, new faceapi.SsdMobilenetv1Options({ minConfidence: 0.5 }))
       .withFaceLandmarks()
       .withFaceDescriptor();
   }
@@ -275,9 +315,14 @@ export async function detectFaceStable(
   samples = 5,
   options: DetectOptions = {}
 ): Promise<FaceDetectionResult | null> {
+  // Um canvas de trabalho é reaproveitado entre as amostras, mas precisa ser
+  // redesenhado a cada uma: sem isso as N detecções medem o mesmo quadro e a
+  // média não amortiza ruído nenhum.
+  const isVideo = input instanceof HTMLVideoElement;
   const out: FaceDetectionResult[] = [];
   for (let i = 0; i < samples; i++) {
-    const r = await detectFace(input, options);
+    const source = isVideo ? downscale(input, options.workSize ?? 640) ?? input : input;
+    const r = await detectFace(source, options);
     if (r) out.push(r);
   }
   // Com poucas detecções a média fica instável. É melhor devolver null e deixar
