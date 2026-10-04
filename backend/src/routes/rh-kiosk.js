@@ -1,7 +1,7 @@
 import express from 'express';
 import { query } from '../db.js';
 import { authenticate } from '../middleware/auth.js';
-import { logError, logInfo, logWarn } from '../logger.js';
+import { logError, logInfo, logWarn, getRecentLogs } from '../logger.js';
 import { verifyFace, maxDistanceForScore, normalizeDescriptor } from '../services/face-match.js';
 
 /** Lê a configuração de biometria da organização, tolerando schemas antigos. */
@@ -22,12 +22,6 @@ async function loadFacialConfig(orgId) {
 const router = express.Router();
 router.use(authenticate);
 
-// Kiosk endpoints are restricted to accounts explicitly enabled for timeclock use.
-router.use((req, res, next) => {
-  if (req.user?.timeclock_kiosk === true || req.user?.account_type === 'timeclock_kiosk') return next();
-  return res.status(403).json({ error: 'Acesso restrito ao modo quiosque de ponto' });
-});
-
 async function resolveOrgId(req) {
   const fromReq = req.body?.organization_id || req.query?.org_id || req.organizationId || req.headers['x-organization-id'];
   if (fromReq) return fromReq;
@@ -38,6 +32,62 @@ async function resolveOrgId(req) {
   );
   return r.rows[0]?.organization_id || null;
 }
+
+/**
+ * Diagnóstico do reconhecimento facial, para consulta fora do tablet.
+ *
+ * O quiosque não tem console, então a recusa precisa ser inspecionável de um
+ * navegador comum. Devolve somente números agregados e a configuração em uso
+ * — nunca descritores, fotos ou qualquer dado biométrico.
+ */
+router.get('/face-debug', async (req, res) => {
+  try {
+    const orgId = await resolveOrgId(req);
+    if (!orgId) return res.status(400).json({ error: 'Organização não identificada' });
+
+    const cfg = await loadFacialConfig(orgId);
+    const threshold = Number(cfg?.min_confidence ?? 70);
+
+    const attempts = getRecentLogs({
+      limit: 50,
+      eventPrefixes: ['rh.kiosk.punch.face_'],
+    });
+
+    return res.json({
+      config: {
+        min_confidence: cfg?.min_confidence ?? null,
+        enabled: cfg?.enabled ?? null,
+        use_for_attendance: cfg?.use_for_attendance ?? null,
+        allow_manual_fallback: cfg?.allow_manual_fallback ?? null,
+      },
+      threshold_applied: threshold,
+      max_distance_accepted: Math.round(maxDistanceForScore(threshold) * 1000) / 1000,
+      attempts: attempts.map((e) => ({
+        ts: e.ts,
+        level: e.level,
+        employee_id: e.employee_id,
+        distance: e.distance,
+        client_distance: e.client_distance,
+        score: e.score,
+        client_score: e.client_score,
+        max_distance: e.max_distance,
+        threshold: e.threshold,
+        reason: e.reason,
+        enrolled_len: e.enrolled_len,
+        captured_len: e.captured_len,
+      })),
+    });
+  } catch (err) {
+    logError('rh.kiosk.face_debug', err);
+    res.status(500).json({ error: 'Erro ao coletar diagnóstico' });
+  }
+});
+
+// A partir daqui só rotas de operação do quiosque.
+router.use((req, res, next) => {
+  if (req.user?.timeclock_kiosk === true || req.user?.account_type === 'timeclock_kiosk') return next();
+  return res.status(403).json({ error: 'Acesso restrito ao modo quiosque de ponto' });
+});
 
 let attendanceSchemaPromise = null;
 async function ensureAttendanceSchema() {
