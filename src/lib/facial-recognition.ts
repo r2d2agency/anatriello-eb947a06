@@ -186,14 +186,17 @@ async function runFaceDetection(
       ? (detector as any).detectAllFaces(target).withFaceLandmarks().withFaceDescriptors()
       : (detector as any).detectSingleFace(target).withFaceLandmarks().withFaceDescriptor();
 
+  // SSD MobileNet é 5-10x mais lento que TinyFaceDetector. No quiosque, quando
+  // não há rosto na imagem, esperar o SSD timeout a cada ciclo torna a busca
+  // inviável (2-3 minutos). Usa SSD apenas quando já há um rosto detectado.
   let detection = await run(tinyOptions);
 
-  // `detectAllFaces` devolve array; normaliza para o primeiro rosto.
   if (detectAll) {
-    if (!detection || detection.length === 0) detection = await run(ssdOptions);
+    // detectAllFaces devolve array; normaliza para o primeiro rosto.
     if (!detection || detection.length === 0) return null;
     detection = detection[0];
   } else {
+    // detectSingleFace: tenta SSD apenas se o Tiny falhou.
     if (!detection) detection = await run(ssdOptions);
     if (!detection) return null;
   }

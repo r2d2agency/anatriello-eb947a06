@@ -80,6 +80,9 @@ const STABLE_CONFIRM_SLACK = 1.25;
 // posicionar sem fazer o colaborador esperar quase um minuto.
 const MAX_ATTEMPTS_NO_FACE = 45;
 const MAX_ATTEMPTS_FACE_FOUND = 30;
+// Pequeno delay entre detecções para não sobrecarregar o CPU.
+// rAF roda a cada frame (~16ms), mas a detecção leva mais que isso.
+const RETRY_DELAY_MS = 50;
 
 export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = {}) {
   const { toast } = useToast();
@@ -161,9 +164,7 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
 
   const stopCamera = useCallback(() => {
     if (detectLoopRef.current) {
-      // O loop agora usa requestAnimationFrame, não setTimeout — é preciso usar
-      // cancelAnimationFrame para cancelar. clearTimeout não cancela rAF.
-      window.cancelAnimationFrame(detectLoopRef.current);
+      window.clearTimeout(detectLoopRef.current);
       detectLoopRef.current = null;
     }
     if (keepAlive && streamRef.current) {
@@ -240,12 +241,11 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
     setStatusMsg("Procurando rosto…");
     let attempts = 0;
 
-    // requestAnimationFrame em vez de setTimeout: o ciclo roda no próximo frame
-    // disponível, sem acumular delay fixo de 150ms. Em tablets isso reduz o
-    // tempo de busca em ~30-40% porque não há mais o intervalo morto entre
-    // detecções.
+    // setTimeout com delay curto: rAF pode sobrecarregar o CPU em tablets.
+    // 50ms é suficiente para não bloquear a UI mas rápido o bastante para
+    // uma busca responsiva.
     const scheduleNext = () => {
-      detectLoopRef.current = requestAnimationFrame(() => { void loop(); });
+      detectLoopRef.current = window.setTimeout(loop, RETRY_DELAY_MS) as unknown as number;
     };
 
     const loop = async () => {
