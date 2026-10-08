@@ -58,6 +58,17 @@ function maxDistanceForScore(threshold: number): number {
   return 0.6 + ((60 - safe) / 60) * 0.4;
 }
 
+/** Rejeita se a promessa não resolver a tempo, com mensagem legível. */
+function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = window.setTimeout(() => reject(new Error(message)), ms);
+    promise.then(
+      (value) => { window.clearTimeout(timer); resolve(value); },
+      (error) => { window.clearTimeout(timer); reject(error); }
+    );
+  });
+}
+
 /**
  * O quiosque compara 1:N (descobrir QUEM é), o que é mais tolerante que o app
  * do colaborador, que compara 1:1 (confirmar se é ELE). Por isso o limiar do
@@ -137,6 +148,8 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
   const [statusMsg, setStatusMsg] = useState<string>("");
   const [camWarning, setCamWarning] = useState<string | null>(null);
   const [landmarks, setLandmarks] = useState<number[][] | null>(null);
+  /** Contador de ciclos de busca, exibido para diagnosticar "travado". */
+  const [attemptCount, setAttemptCount] = useState(0);
 
   // Redesenha os pontos quando a câmera ou o rosto mudam
   useEffect(() => {
@@ -239,6 +252,7 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
     setLandmarks(null);
     if (!videoRef.current) return;
     setStatusMsg("Procurando rosto…");
+    setAttemptCount(0);
     let attempts = 0;
 
     // setTimeout com delay curto: rAF pode sobrecarregar o CPU em tablets.
@@ -251,6 +265,10 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
     const loop = async () => {
       if (!videoRef.current) return;
       attempts++;
+      // Mostra o número de ciclos: se ele para de subir, o loop travou; se não
+      // aparece, o problema é antes daqui (modelo/câmera). Sem isto a tela fica
+      // em silêncio e não há como distinguir as duas situações.
+      setAttemptCount(attempts);
       try {
         // Etapa 1 (barata): um único quadro, detector pequeno. Serve só para
         // decidir se vale a pena confirmar. Medir a média a cada ciclo custaria
@@ -358,7 +376,10 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
     setPhase("loading");
     setStatusMsg("Carregando reconhecimento facial…");
     try {
-      await loadFaceModels();
+      // Os modelos vêm de um CDN externo. Se ele estiver lento ou bloqueado no
+      // tablet, loadFaceModels() nunca resolve e a tela fica em silêncio para
+      // sempre — sem isto não há como distinguir de "detecção lenta".
+      await withTimeout(loadFaceModels(), 20000, "O download dos modelos de reconhecimento demorou demais. Verifique a internet do tablet.");
       // Sempre relê do servidor, mesmo com descritores já em cache. Ler só a
       // lista descartava a sensibilidade configurada, e o tablet acabava
       // validando com 75 enquanto o servidor exigia 85.
@@ -371,15 +392,19 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
       setStatusMsg("Abrindo câmera…");
       // Reaproveita o stream já autorizado (quiosque) — evita novo pedido de permissão
       let stream = streamRef.current;
+      // Diagnóstico: sem isto, um modelo que não carrega (CDN lento/bloqueado
+      // no tablet) deixa a tela em silêncio e parece "detecção lenta".
       const alive = stream?.getVideoTracks().some((t) => t.readyState === "live");
       if (!stream || !alive) {
         stream = await navigator.mediaDevices.getUserMedia({
-          // 1080p dá ao detector um rosto maior no quadro; em retrato, mais
-          // pixels se traduzem em descritor mais estável.
+          // 720p, não 1080p: o downscale() joga fora a resolução extra de
+          // qualquer forma (trabalha em <=640px), então 1080p só custa tempo de
+          // decodificação e CPU no tablet. O cadastro usa 640x480 e acha o rosto
+          // na hora — é a mesma ordem de grandeza.
           video: {
             facingMode: "user",
-            width: { ideal: 1920 },
-            height: { ideal: 1080 },
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
             frameRate: { ideal: 30 },
           },
           audio: false,
@@ -549,8 +574,11 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
         {(phase === "loading" || phase === "detecting" || phase === "camera") && (
           <div className="w-full max-w-3xl">
             <Card className="bg-black/40 border-white/10 overflow-hidden">
-              <div className="relative aspect-[3/4] sm:aspect-video bg-black max-h-[70vh]">
-                <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover scale-x-[-1]" />
+              <div className="relative aspect-video bg-black max-h-[70vh]">
+                {/* object-contain em vez de object-cover: o cover cortava as
+                    laterais do quadro quando a câmera entregava retrato, e o
+                    rosto podia parar fora da área visível justamente por isso. */}
+                <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-contain scale-x-[-1]" />
                 {/* Moldura guia — ocupa a maior parte da altura, cabe um rosto inteiro */}
                 <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
                   <div className="h-[78%] aspect-[3/4] max-w-[70%] border-4 border-primary/70 rounded-[45%] shadow-[0_0_50px_rgba(59,130,246,0.45)]" />
@@ -563,6 +591,13 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
                   <div className="bg-black/80 backdrop-blur px-5 py-2.5 rounded-full flex items-center gap-2 border border-white/10">
                     <Loader2 className="h-4 w-4 animate-spin text-primary" />
                     <span className="text-sm text-white font-medium">{statusMsg}</span>
+                    {phase === "detecting" && attemptCount > 0 && (
+                      <span className="text-xs text-white/50 ml-1">
+                        {videoRef.current?.videoWidth
+                          ? `${videoRef.current.videoWidth}×${videoRef.current.videoHeight}`
+                          : "sem vídeo"} · {attemptCount}
+                      </span>
+                    )}
                   </div>
                 </div>
               </div>
