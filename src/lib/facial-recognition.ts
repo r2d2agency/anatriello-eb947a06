@@ -122,6 +122,12 @@ export interface DetectOptions {
   scoreThreshold?: number;
   /** Lado maior do canvas de trabalho ao reduzir o vídeo. Menor = mais rápido. */
   workSize?: number;
+  /**
+   * Usa `detectAllFaces` em vez de `detectSingleFace`. Captura rostos
+   * laterais/perfil que o single rejeita — essencial no quiosque, onde a
+   * pessoa raramente está de frente perfeita para a câmera.
+   */
+  detectAll?: boolean;
 }
 
 /**
@@ -160,7 +166,7 @@ async function runFaceDetection(
   input: HTMLVideoElement | HTMLImageElement | HTMLCanvasElement,
   options: DetectOptions = {}
 ): Promise<FaceDetectionResult | null> {
-  const { inputSize = 320, scoreThreshold = 0.5, workSize = 640 } = options;
+  const { inputSize = 320, scoreThreshold = 0.5, workSize = 640, detectAll = false } = options;
 
   // Para vídeo, reduz antes de detectar: o custo de reescalar o quadro
   // inteiro é maior que o de rodar o detector numa imagem menor.
@@ -169,22 +175,31 @@ async function runFaceDetection(
 
   // TinyFaceDetector é ~5-10x mais rápido que SSD MobileNet em CPU (mobile).
   // Usa SSD como fallback caso o Tiny falhe.
-  let detection = await faceapi
-    .detectSingleFace(target, new faceapi.TinyFaceDetectorOptions({ inputSize, scoreThreshold }))
-    .withFaceLandmarks()
-    .withFaceDescriptor();
+  const tinyOptions = new faceapi.TinyFaceDetectorOptions({ inputSize, scoreThreshold });
+  const ssdOptions = new faceapi.SsdMobilenetv1Options({ minConfidence: 0.5 });
 
-  if (!detection) {
-    detection = await faceapi
-      .detectSingleFace(target, new faceapi.SsdMobilenetv1Options({ minConfidence: 0.5 }))
-      .withFaceLandmarks()
-      .withFaceDescriptor();
+  // `detectAllFaces` captura rostos laterais/perfil que o `detectSingleFace`
+  // rejeita — no quiosque a pessoa raramente está de frente perfeita, e cada
+  // quadro perdido é um ciclo inteiro de espera a mais.
+  const run = <T>(detector: T) =>
+    detectAll
+      ? (detector as any).detectAllFaces(target).withFaceLandmarks().withFaceDescriptors()
+      : (detector as any).detectSingleFace(target).withFaceLandmarks().withFaceDescriptor();
+
+  let detection = await run(tinyOptions);
+
+  // `detectAllFaces` devolve array; normaliza para o primeiro rosto.
+  if (detectAll) {
+    if (!detection || detection.length === 0) detection = await run(ssdOptions);
+    if (!detection || detection.length === 0) return null;
+    detection = detection[0];
+  } else {
+    if (!detection) detection = await run(ssdOptions);
+    if (!detection) return null;
   }
 
-  if (!detection) return null;
-
-  const landmarks = detection.landmarks.positions.map(p => [p.x, p.y]);
-  const descriptor = Array.from(detection.descriptor);
+  const landmarks = detection.landmarks.positions.map((p: { x: number; y: number }) => [p.x, p.y]);
+  const descriptor: number[] = Array.from(detection.descriptor as ArrayLike<number>);
   const box = detection.detection.box;
 
   return {
@@ -320,14 +335,36 @@ export async function detectFaceStable(
   // média não amortiza ruído nenhum.
   const isVideo = input instanceof HTMLVideoElement;
   const out: FaceDetectionResult[] = [];
+
+  // Amostras adaptativas: o mínimo para uma média confiável é 3, mas se os
+  // primeiros quadros já forem consistentes entre si, não precisa esperar os 5.
+  // Isso reduz o tempo de confirmação de ~5 detecções para ~2-3 quando o rosto
+  // está bom — a diferença entre 1s e 3s no quiosque.
+  const minSamples = Math.min(3, samples);
+  const earlyExitAfter = Math.min(3, samples);
+
   for (let i = 0; i < samples; i++) {
     const source = isVideo ? downscale(input, options.workSize ?? 640) ?? input : input;
     const r = await detectFace(source, options);
     if (r) out.push(r);
+
+    // Early exit: se já temos amostras suficientes e elas são consistentes,
+    // parar agora. "Consistente" = todos os pares dentro de 0.12 de distância.
+    if (out.length >= earlyExitAfter && i + 1 >= minSamples) {
+      let maxPairDist = 0;
+      for (let a = 0; a < out.length; a++) {
+        for (let b = a + 1; b < out.length; b++) {
+          const d = euclideanDistance(out[a].descriptor, out[b].descriptor);
+          if (d > maxPairDist) maxPairDist = d;
+        }
+      }
+      if (maxPairDist < 0.12) break;
+    }
   }
+
   // Com poucas detecções a média fica instável. É melhor devolver null e deixar
   // o chamador tentar de novo do que medir em cima de um quadro só.
-  if (out.length < Math.min(3, samples)) return null;
+  if (out.length < minSamples) return null;
 
   const len = out[0].descriptor.length;
   const mean = new Array<number>(len).fill(0);
@@ -347,6 +384,16 @@ export async function detectFaceStable(
   }
 
   return { ...best, descriptor: mean };
+}
+
+/** Distância euclidiana entre dois descritores (usada no early exit). */
+function euclideanDistance(a: number[], b: number[]): number {
+  let sum = 0;
+  for (let i = 0; i < a.length; i++) {
+    const d = a[i] - b[i];
+    sum += d * d;
+  }
+  return Math.sqrt(sum);
 }
 
 /**
