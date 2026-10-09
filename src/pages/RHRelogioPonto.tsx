@@ -16,6 +16,36 @@ interface Enrollment {
   facial_required?: boolean;
 }
 
+interface EnrollmentCache {
+  items: Enrollment[];
+  min_confidence?: number;
+  savedAt: number;
+}
+
+const ENROLLMENT_CACHE_KEY = "kiosk_enrollment_cache";
+const ENROLLMENT_CACHE_TTL = 5 * 60 * 1000; // 5 minutos
+
+function loadCachedEnrollments(): EnrollmentCache | null {
+  try {
+    const raw = localStorage.getItem(ENROLLMENT_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as EnrollmentCache;
+    if (!parsed.items?.length) return null;
+    if (Date.now() - parsed.savedAt > ENROLLMENT_CACHE_TTL) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function saveEnrollmentsCache(data: EnrollmentCache) {
+  try {
+    localStorage.setItem(ENROLLMENT_CACHE_KEY, JSON.stringify(data));
+  } catch {
+    // localStorage cheio ou indisponível — segue sem cache
+  }
+}
+
 interface Matched {
   employee: Enrollment;
   score: number;
@@ -86,11 +116,12 @@ const AMBIGUITY_MARGIN = 0.06;
 // Folga sobre o limiar de aceite para decidir quando vale pagar a confirmação
 // cara (média de 5 quadros). Medidas de quadros únicos variam ~0.05.
 const STABLE_CONFIRM_SLACK = 1.25;
-// Tempo total de busca antes de desistir. Medido em conjunto com o intervalo
-// abaixo: 45 tentativas a 150ms dá ~7s, o suficiente para a pessoa se
-// posicionar sem fazer o colaborador esperar quase um minuto.
-const MAX_ATTEMPTS_NO_FACE = 45;
-const MAX_ATTEMPTS_FACE_FOUND = 30;
+// Tempo total de busca antes de desistir. Cada ciclo custa ~200ms na CPU do
+// tablet (TinyFaceDetector + landmarks + descriptor), então 20 tentativas são
+~4s — tempo de sobra para a pessoa se posicionar, sem a espera infinita que
+o colaborador viu quando os limites eram 45/30.
+const MAX_ATTEMPTS_NO_FACE = 20;
+const MAX_ATTEMPTS_FACE_FOUND = 12;
 // Pequeno delay entre detecções para não sobrecarregar o CPU.
 // rAF roda a cada frame (~16ms), mas a detecção leva mais que isso.
 const RETRY_DELAY_MS = 50;
@@ -150,6 +181,8 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
   const [landmarks, setLandmarks] = useState<number[][] | null>(null);
   /** Contador de ciclos de busca, exibido para diagnosticar "travado". */
   const [attemptCount, setAttemptCount] = useState(0);
+  /** Diagnóstico exibido na tela de "não encontrado". */
+  const [notFoundInfo, setNotFoundInfo] = useState<{ dbSize: number; bestDistance: number | null } | null>(null);
 
   // Redesenha os pontos quando a câmera ou o rosto mudam
   useEffect(() => {
@@ -236,6 +269,30 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
   }, []);
 
   const loadEnrollments = useCallback(async () => {
+    // Tenta o cache primeiro: se a lista de colaboradores não mudou nos
+    // últimos 5 minutos, não precisa baixar de novo. Isso elimina a espera
+    // de rede em cada batida — o tablet muitas vezes está em WiFi fraco.
+    const cached = loadCachedEnrollments();
+    if (cached) {
+      setEnrollments(cached.items);
+      const configured = Number(cached.min_confidence);
+      const effective = Number.isFinite(configured)
+        ? Math.max(KIOSK_MATCH_THRESHOLD, configured)
+        : KIOSK_MATCH_THRESHOLD;
+      setMinConfidence(effective);
+      // Atualiza em segundo plano sem bloquear a detecção
+      api<{ items: Enrollment[]; min_confidence?: number }>(`/api/rh/kiosk/enrollments`)
+        .then((res) => {
+          setEnrollments(res.items || []);
+          const cfg = Number(res.min_confidence);
+          const eff = Number.isFinite(cfg) ? Math.max(KIOSK_MATCH_THRESHOLD, cfg) : KIOSK_MATCH_THRESHOLD;
+          setMinConfidence(eff);
+          saveEnrollmentsCache({ items: res.items || [], min_confidence: res.min_confidence, savedAt: Date.now() });
+        })
+        .catch(() => {});
+      return cached.items;
+    }
+
     const res = await api<{ items: Enrollment[]; min_confidence?: number }>(`/api/rh/kiosk/enrollments`);
     setEnrollments(res.items || []);
     // 1:N exige mais rigidez que a sensibilidade do app (1:1). O admin pode
@@ -245,6 +302,7 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
       ? Math.max(KIOSK_MATCH_THRESHOLD, configured)
       : KIOSK_MATCH_THRESHOLD;
     setMinConfidence(effective);
+    saveEnrollmentsCache({ items: res.items || [], min_confidence: res.min_confidence, savedAt: Date.now() });
     return res.items || [];
   }, []);
 
@@ -253,7 +311,9 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
     if (!videoRef.current) return;
     setStatusMsg("Procurando rosto…");
     setAttemptCount(0);
+    setNotFoundInfo(null);
     let attempts = 0;
+    let bestDistance: number | null = null;
 
     // setTimeout com delay curto: rAF pode sobrecarregar o CPU em tablets.
     // 50ms é suficiente para não bloquear a UI mas rápido o bastante para
@@ -304,10 +364,16 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
         const quickBest = quickRank[0];
         const acceptMax = maxDistanceForScore(threshold);
 
+        // Rastreia a melhor distância para diagnóstico
+        if (quickBest && (bestDistance === null || quickBest.d < bestDistance)) {
+          bestDistance = quickBest.d;
+        }
+
         // Só confirma quando o quadro único já está perto o suficiente. A margem
         // dá espaço para a média de vários quadros corrigir a medição.
         if (!quickBest || quickBest.d > acceptMax * STABLE_CONFIRM_SLACK) {
           if (attempts >= MAX_ATTEMPTS_FACE_FOUND) {
+            setNotFoundInfo({ dbSize: items.length, bestDistance });
             setPhase("not_found");
             stopCamera();
             return;
@@ -574,11 +640,11 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
         {(phase === "loading" || phase === "detecting" || phase === "camera") && (
           <div className="w-full max-w-3xl">
             <Card className="bg-black/40 border-white/10 overflow-hidden">
-              <div className="relative aspect-video bg-black max-h-[70vh]">
-                {/* object-contain em vez de object-cover: o cover cortava as
-                    laterais do quadro quando a câmera entregava retrato, e o
-                    rosto podia parar fora da área visível justamente por isso. */}
-                <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-contain scale-x-[-1]" />
+              {/* Sem max-h: o vídeo ocupa a tela inteira do tablet. Limitar a
+                  70vh reduzia a área de leitura justamente onde o rosto podia
+                  estar. object-cover preenche o contêiner sem cortar o centro. */}
+              <div className="relative flex-1 bg-black min-h-0">
+                <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover scale-x-[-1]" />
                 {/* Moldura guia — ocupa a maior parte da altura, cabe um rosto inteiro */}
                 <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
                   <div className="h-[78%] aspect-[3/4] max-w-[70%] border-4 border-primary/70 rounded-[45%] shadow-[0_0_50px_rgba(59,130,246,0.45)]" />
@@ -688,6 +754,27 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
               <p className="text-white/70 mb-2">
                 Nenhum rosto cadastrado corresponde ao rosto apresentado.
               </p>
+              {notFoundInfo && (
+                <div className="bg-black/30 rounded-xl p-4 mb-4 text-left text-sm space-y-1">
+                  <p className="text-white/60">
+                    <span className="text-white/80 font-medium">Banco de rostos:</span>{" "}
+                    {notFoundInfo.dbSize} colaborador{notFoundInfo.dbSize !== 1 ? "es" : ""}
+                  </p>
+                  {notFoundInfo.bestDistance !== null && (
+                    <p className="text-white/60">
+                      <span className="text-white/80 font-medium">Melhor distância:</span>{" "}
+                      {notFoundInfo.bestDistance.toFixed(3)}
+                      <span className="text-white/40 ml-2">
+                        (limiar: {maxDistanceForScore(minConfidence).toFixed(3)})
+                      </span>
+                    </p>
+                  )}
+                  <p className="text-white/40 text-xs mt-2">
+                    Distância menor = rosto mais parecido. Se a melhor distância está perto do limiar,
+                    o rosto pode estar mal posicionado ou a biometria precisa ser refeita.
+                  </p>
+                </div>
+              )}
               <p className="text-white/70 mb-6">
                 Se o seu rosto ainda não foi cadastrado, procure o RH para registrar sua biometria.
               </p>
