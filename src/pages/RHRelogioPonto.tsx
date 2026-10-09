@@ -124,8 +124,8 @@ const AMBIGUITY_MARGIN = 0.02;
 const STABLE_CONFIRM_SLACK = 1.25;
 // Tempo total de busca antes de desistir. Cada ciclo custa ~200ms na CPU do
 // tablet (TinyFaceDetector + landmarks + descriptor), então 20 tentativas são
-~4s — tempo de sobra para a pessoa se posicionar, sem a espera infinita que
-o colaborador viu quando os limites eram 45/30.
+// ~4s — tempo de sobra para a pessoa se posicionar, sem a espera infinita que
+// o colaborador viu quando os limites eram 45/30.
 const MAX_ATTEMPTS_NO_FACE = 20;
 const MAX_ATTEMPTS_FACE_FOUND = 12;
 // Pequeno delay entre detecções para não sobrecarregar o CPU.
