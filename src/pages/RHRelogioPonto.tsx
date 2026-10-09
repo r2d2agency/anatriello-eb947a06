@@ -108,11 +108,17 @@ function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promi
 const KIOSK_MATCH_THRESHOLD = 75;
 
 /**
- * Distância abaixo da qual o segundo colocado é considerado ambiguo. Se dois
+ * Distância abaixo da qual o segundo colocado é considerado ambíguo. Se dois
  * rostos estão praticamente igualmente próximos, não dá para saber qual é a
  * pessoa — escolher o menor seria adivinhar, e o caminho seguro é recusar.
+ *
+ * Com 12 funcionários, essa margem de 0.06 era a causa principal das buscas
+ * infinitas: o rosto legítimo ficava a ~0.28 (limiar 75), mas o segundo colocado
+ * muitas vezes estava a menos de 0.06 dele, e o ciclo rejeitava e tentava de novo
+ * para sempre. 0.02 só recusa quando a escolha é genuinamente uma moeda
+ * — dois gêmeos no mesmo turno, por exemplo.
  */
-const AMBIGUITY_MARGIN = 0.06;
+const AMBIGUITY_MARGIN = 0.02;
 // Folga sobre o limiar de aceite para decidir quando vale pagar a confirmação
 // cara (média de 5 quadros). Medidas de quadros únicos variam ~0.05.
 const STABLE_CONFIRM_SLACK = 1.25;
@@ -463,14 +469,15 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
       const alive = stream?.getVideoTracks().some((t) => t.readyState === "live");
       if (!stream || !alive) {
         stream = await navigator.mediaDevices.getUserMedia({
-          // 720p, não 1080p: o downscale() joga fora a resolução extra de
-          // qualquer forma (trabalha em <=640px), então 1080p só custa tempo de
-          // decodificação e CPU no tablet. O cadastro usa 640x480 e acha o rosto
-          // na hora — é a mesma ordem de grandeza.
+          // 640x480 — exatamente o que o cadastro usa. O cadastro acha o rosto
+          // na hora com essa resolução; o quiosque pedia 720p e o object-cover
+          // cortava o vídeo 16:9 num tablet em retrato, deixando o rosto menor
+          // na imagem de trabalho e o descritor pior. downscale() já limita a
+          // 640px de qualquer forma, então resolução maior só piorava o corte.
           video: {
             facingMode: "user",
-            width: { ideal: 1280 },
-            height: { ideal: 720 },
+            width: { ideal: 640 },
+            height: { ideal: 480 },
             frameRate: { ideal: 30 },
           },
           audio: false,
