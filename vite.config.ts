@@ -14,7 +14,7 @@ export default defineConfig(() => ({
       registerType: "prompt",
       includeAssets: ["favicon.ico", "apple-touch-icon.png", "masked-icon.svg"],
       workbox: {
-        maximumFileSizeToCacheInBytes: 10 * 1024 * 1024, // 10 MB
+        maximumFileSizeToCacheInBytes: 32 * 1024 * 1024, // 32 MB (ONNX WASM is ~28 MB)
         // version.json must always come from the server. Precaching it can make
         // an old service worker hide a newly published release indefinitely.
         globIgnores: ["**/version.json"],
