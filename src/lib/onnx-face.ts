@@ -51,10 +51,12 @@
  */
 import * as ort from 'onnxruntime-web';
 
-const MODEL_BASE = 'https://cdn.jsdelivr.net/gh/anatriello/models@main';
+// Modelos servidos pela própria aplicação (public/models). Evita depender de
+// CDN externa no tablet, onde a rede costuma ser o ponto fraco.
+const MODEL_BASE = `${import.meta.env.BASE_URL}models`;
 
 /** YuNet: detector facial. Devolve caixa + 5 landmarks. */
-const YUNET_URL = `${MODEL_BASE}/face_detection_yunet_2023mar.onnx`;
+const YUNET_URL = `${MODEL_BASE}/yunet.onnx`;
 
 /**
  * MobileFaceNet (treinado com ArcFace). Entra 112x112, sai 128-dim.

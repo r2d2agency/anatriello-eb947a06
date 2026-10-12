@@ -97,12 +97,19 @@ export const FaceCaptureDialog = ({ open, onOpenChange, onCapture, title = "Capt
           void detectLoop(sessionId);
         }, nextDelay);
       });
-    } catch {
+    } catch (error) {
       if (detectSessionRef.current !== sessionId) return;
 
+      // Sem este log o erro real fica invisível: a mensagem abaixo aparece igual
+      // para "modelo não baixou", "WASM não carregou" e "GPU estourou memória".
+      console.error('[FaceCapture] detecção falhou', error);
       latestDetectionRef.current = null;
       setDetection(null);
-      setError("Não foi possível processar o reconhecimento facial neste dispositivo. Tente novamente ou use um navegador/dispositivo com aceleração gráfica disponível.");
+      setError(
+        error instanceof Error && error.message
+          ? `Falha no reconhecimento facial: ${error.message}`
+          : "Não foi possível processar o reconhecimento facial neste dispositivo. Tente novamente ou use um navegador/dispositivo com aceleração gráfica disponível."
+      );
       setStatus("error");
       stopCamera();
     }
