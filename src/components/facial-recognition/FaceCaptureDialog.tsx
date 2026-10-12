@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Camera, Loader2, CheckCircle2, AlertTriangle, RotateCcw, ScanFace } from "lucide-react";
-import { loadFaceModels, detectFace, captureVideoFrame, drawLandmarks, extractGeometricProfile, getActiveFaceBackend, type FaceDetectionResult } from "@/lib/facial-recognition";
+import { loadFaceModels, detectFace, captureVideoFrame, drawLandmarks, extractGeometricProfile, type FaceDetectionResult } from "@/lib/facial-recognition";
 
 interface Props {
   open: boolean;
@@ -89,7 +89,9 @@ export const FaceCaptureDialog = ({ open, onOpenChange, onCapture, title = "Capt
         }
       }
 
-      const nextDelay = getActiveFaceBackend() === "cpu" ? 350 : 200;
+      // YuNet + MobileFaceNet rodam em ~200ms por quadro mesmo em CPU — rápido
+      // o bastante para uma captura responsiva no tablet.
+      const nextDelay = 200;
       animFrameRef.current = requestAnimationFrame(() => {
         detectTimeoutRef.current = window.setTimeout(() => {
           void detectLoop(sessionId);
