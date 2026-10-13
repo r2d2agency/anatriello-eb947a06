@@ -331,43 +331,63 @@ function computeIou(a: number[], b: number[]): number {
 /**
  * Converte a imagem para o tensor de entrada do YuNet.
  *
- * YuNet espera NCHW (1,3,H,W) normalizado para [-1, 1], e o lado maior precisa
- * ser múltiplo de 32 — por isso o pad ao final.
+ * O modelo YuNet neste projeto foi exportado com entrada fixa 640×640.
+ * A imagem é redimensionada para caber dentro de 640×640 mantendo a
+ * proporção (letterbox) e o espaço restante é preenchido com preto
+ * (valor 0 no espaço normalizado [-1, 1]).
+ *
+ * Retorna também os offsets (padX, padY) e o scale para que as
+ * coordenadas detectadas sejam convertidas de volta para a imagem
+ * original.
  */
 function imageToYuNetTensor(
   source: HTMLVideoElement | HTMLImageElement | HTMLCanvasElement,
   targetSize: number
-): { tensor: ort.Tensor; width: number; height: number; scale: number } {
+): { tensor: ort.Tensor; width: number; height: number; scale: number; padX: number; padY: number } {
   const sw = 'videoWidth' in source ? source.videoWidth : source.width;
   const sh = 'videoHeight' in source ? source.videoHeight : source.height;
   if (!sw || !sh) throw new Error('Imagem sem dimensões disponíveis');
 
   const scale = targetSize / Math.max(sw, sh);
-  const w = Math.ceil(Math.round(sw * scale) / 32) * 32;
-  const h = Math.ceil(Math.round(sh * scale) / 32) * 32;
+  const w = Math.round(sw * scale);
+  const h = Math.round(sh * scale);
 
   const canvas = document.createElement('canvas');
-  canvas.width = w;
-  canvas.height = h;
+  canvas.width = targetSize;
+  canvas.height = targetSize;
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
   if (!ctx) throw new Error('Canvas 2D indisponível');
-  ctx.drawImage(source, 0, 0, w, h);
 
-  const imageData = ctx.getImageData(0, 0, w, h);
-  const data = new Float32Array(3 * w * h);
+  // Fundo preto → valor 0 no espaço normalizado [-1, 1]
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, targetSize, targetSize);
+
+  const padX = Math.floor((targetSize - w) / 2);
+  const padY = Math.floor((targetSize - h) / 2);
+  ctx.drawImage(source, padX, padY, w, h);
+
+  const imageData = ctx.getImageData(0, 0, targetSize, targetSize);
+  const data = new Float32Array(3 * targetSize * targetSize);
   const pixels = imageData.data;
 
   // NCHW com normalização [-1, 1]
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      const p = (y * w + x) * 4;
-      data[y * w + x] = (pixels[p] / 255) * 2 - 1;               // R
-      data[w * h + y * w + x] = (pixels[p + 1] / 255) * 2 - 1;   // G
-      data[2 * w * h + y * w + x] = (pixels[p + 2] / 255) * 2 - 1; // B
+  for (let y = 0; y < targetSize; y++) {
+    for (let x = 0; x < targetSize; x++) {
+      const p = (y * targetSize + x) * 4;
+      data[y * targetSize + x] = (pixels[p] / 255) * 2 - 1;                     // R
+      data[targetSize * targetSize + y * targetSize + x] = (pixels[p + 1] / 255) * 2 - 1;     // G
+      data[2 * targetSize * targetSize + y * targetSize + x] = (pixels[p + 2] / 255) * 2 - 1; // B
     }
   }
 
-  return { tensor: new ort.Tensor('float32', data, [1, 3, h, w]), width: w, height: h, scale };
+  return {
+    tensor: new ort.Tensor('float32', data, [1, 3, targetSize, targetSize]),
+    width: targetSize,
+    height: targetSize,
+    scale,
+    padX,
+    padY,
+  };
 }
 
 /** Landmarks de referência do MobileFaceNet (112x112), na ordem do YuNet. */
@@ -495,7 +515,7 @@ async function runMobileFaceNet(session: ort.InferenceSession, face: HTMLCanvasE
 }
 
 export interface DetectAndEmbedOptions {
-  /** Lado maior do tensor de entrada do YuNet. Múltiplo de 32. */
+  /** Lado do tensor de entrada do YuNet. O modelo espera 640. */
   inputSize?: number;
   /** Confiança mínima para aceitar a detecção. */
   scoreThreshold?: number;
@@ -516,10 +536,10 @@ export async function detectAndEmbed(
   await loadOnnxModels();
   if (!yunetSession || !mobileFaceNetSession) throw new Error('Modelos ONNX não carregados');
 
-  const inputSize = options.inputSize || 320;
+  const inputSize = options.inputSize || 640;
   const scoreThreshold = options.scoreThreshold ?? 0.5;
 
-  const { tensor, width, height, scale } = imageToYuNetTensor(source, inputSize);
+  const { tensor, width, height, scale, padX, padY } = imageToYuNetTensor(source, inputSize);
   const raw = await runYuNet(yunetSession, tensor, width, height, scoreThreshold);
   const { boxes, scores, landmarks } = applyNMS(raw.boxes, raw.scores, raw.landmarks);
 
@@ -535,17 +555,27 @@ export async function detectAndEmbed(
 
   const box = boxes[bestIdx];
   const confidence = scores[bestIdx];
+
+  // Converte coordenadas do espaço do tensor (640×640 com letterbox) para a imagem original.
   const kps = landmarks[bestIdx].map(
-    ([x, y]) => [options.returnOriginalCoords ? x / scale : x, options.returnOriginalCoords ? y / scale : y] as [number, number]
+    ([x, y]) => [(x - padX) / scale, (y - padY) / scale] as [number, number]
   );
 
-  const faceCanvas = alignFace(source, kps, options.returnOriginalCoords ? 1 : scale);
+  // A caixa também precisa ser convertida do espaço do tensor.
+  const boxOriginal = {
+    x: (box[0] - padX) / scale,
+    y: (box[1] - padY) / scale,
+    width: box[2] / scale,
+    height: box[3] / scale,
+  };
+
+  const faceCanvas = alignFace(source, kps, 1);
   const descriptor = await runMobileFaceNet(mobileFaceNetSession, faceCanvas);
 
   return {
     descriptor,
     landmarks: kps,
-    box: { x: box[0], y: box[1], width: box[2], height: box[3] },
+    box: boxOriginal,
     confidence: confidence * 100,
   };
 }
