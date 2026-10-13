@@ -224,7 +224,6 @@ async function runYuNet(
   const out = await session.run(feeds);
 
   const strideList = [8, 16, 32];
-  const inputSize = width;
 
   const boxes: number[][] = [];
   const scores: number[] = [];
@@ -239,8 +238,8 @@ async function runYuNet(
     const bboxMap = out[`bbox_${strideList[i]}`].data as Float32Array;
     const kpsMap = out[`kps_${strideList[i]}`].data as Float32Array;
 
-    const gridW = Math.floor(inputSize / strideList[i]);
-    const gridH = Math.floor(inputSize / strideList[i]);
+    const gridW = Math.floor(width / strideList[i]);
+    const gridH = Math.floor(height / strideList[i]);
 
     for (let gy = 0; gy < gridH; gy++) {
       for (let gx = 0; gx < gridW; gx++) {
@@ -344,8 +343,8 @@ function imageToYuNetTensor(
   if (!sw || !sh) throw new Error('Imagem sem dimensões disponíveis');
 
   const scale = targetSize / Math.max(sw, sh);
-  const w = Math.round(sw * scale);
-  const h = Math.round(sh * scale);
+  const w = Math.ceil(Math.round(sw * scale) / 32) * 32;
+  const h = Math.ceil(Math.round(sh * scale) / 32) * 32;
 
   const canvas = document.createElement('canvas');
   canvas.width = w;
