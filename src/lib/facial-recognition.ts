@@ -176,6 +176,15 @@ export async function detectFaceStable(
     for (let i = 0; i < len; i++) mean[i] += r.descriptor[i] / out.length;
   }
 
+  // A média de vetores unitários não é unitária. Sem renormalizar, a similaridade
+  // de cosseno — e a distância euclidiana do servidor, que assume ||v|| = 1 —
+  // ficam em escala errada, e um mesmo rosto reprova no cadastro e no ponto.
+  let norm = 0;
+  for (const v of mean) norm += v * v;
+  norm = Math.sqrt(norm);
+  if (norm < 1e-9) return null;
+  for (let i = 0; i < len; i++) mean[i] /= norm;
+
   // O embedding médio não tem geometria, então o resultado exibido (box e
   // landmarks) vem do quadro cujo embedding está mais próximo da média.
   let best = out[0];
@@ -202,6 +211,50 @@ export function compareFaces(descriptor1: number[], descriptor2: number[]): numb
  */
 export function facesMatch(descriptor1: number[], descriptor2: number[], threshold = 70): boolean {
   return compareFaces(descriptor1, descriptor2) >= threshold;
+}
+
+/**
+ * Distância euclidiana entre dois descritores normalizados.
+ *
+ * O servidor decide com esta métrica (backend/src/services/face-match.js), não
+ * com cosseno. Os dois só coincidem no limite: para vetores unitários de 128
+ * dimensões, similaridade 0.90 é distância 0.447, que o servidor REJEITA com
+ * limiar 75 — enquanto o cosseno puro exibia "90%". Sem esta função o tablet
+ * aprova um rosto que o servidor recusa, e a batida falha sem explicação.
+ */
+export function euclideanDistance(descriptor1: number[], descriptor2: number[]): number {
+  const len = Math.min(descriptor1.length, descriptor2.length);
+  let sum = 0;
+  for (let i = 0; i < len; i++) {
+    const d = descriptor1[i] - descriptor2[i];
+    sum += d * d;
+  }
+  return Math.sqrt(sum);
+}
+
+/** Mesma curva de backend/src/services/face-match.js — mantenha em sincronia. */
+export function scoreFromDistance(distance: number): number {
+  if (!Number.isFinite(distance) || distance < 0) return 0;
+  if (distance <= 0.6) return 100 - (distance / 0.6) * 40;
+  if (distance <= 1) return 60 - ((distance - 0.6) / 0.4) * 60;
+  return 0;
+}
+
+/** Distância máxima aceita para um limiar (0-100). Espelho de maxDistanceForScore. */
+export function maxDistanceForScore(threshold: number): number {
+  const safe = Math.max(0, Math.min(100, threshold));
+  if (safe >= 60) return ((100 - safe) / 40) * 0.6;
+  return 0.6 + ((60 - safe) / 60) * 0.4;
+}
+
+/**
+ * Distância + score na régua do servidor. Use onde a decisão final é tomada:
+ * o que o tablet aceita precisa ser o que o backend aceita.
+ */
+export function verifyDistance(descriptor1: number[], descriptor2: number[], threshold = 70) {
+  const distance = euclideanDistance(descriptor1, descriptor2);
+  const score = Math.round(scoreFromDistance(distance) * 100) / 100;
+  return { distance, score, ok: distance <= maxDistanceForScore(threshold) };
 }
 
 /**

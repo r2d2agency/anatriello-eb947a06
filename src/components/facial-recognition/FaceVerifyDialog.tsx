@@ -155,7 +155,9 @@ export const FaceVerifyDialog = ({ open, onOpenChange, storedDescriptor, storedP
         setFaceDetected(true);
         setError("");
 
-        if (result.confidence > 60) {
+        // Um score não numérico não pode ser maior que nada: sem esta guarda
+        // NaN passava pela comparação e disparava a confirmação com lixo.
+        if (Number.isFinite(result.confidence) && result.confidence > 60) {
           setStatus("verifying");
           const matchScore = compareFaces(storedDescriptor, result.descriptor);
           const isMatch = facesMatch(storedDescriptor, result.descriptor, threshold);

@@ -244,10 +244,11 @@ async function runYuNet(
     for (let gy = 0; gy < gridH; gy++) {
       for (let gx = 0; gx < gridW; gx++) {
         const index = gy * gridW + gx;
-        const clsScore = Math.max(
-          clsMap[index * 2] as number,
-          clsMap[index * 2 + 1] as number
-        );
+        // cls_* tem 1 canal (shape [1, N, 1]) — o YuNet exportado aqui é
+        // single-class. Ler `index * 2` sairia do array e devolveria undefined,
+        // que vira NaN no Math.max e passa pelo filtro de score (NaN < t é
+        // false), gerando confiança "NaN%" e embeddings inutilizáveis.
+        const clsScore = clsMap[index] as number;
         const objScore = objMap[index] as number;
         const score = clsScore * objScore;
 

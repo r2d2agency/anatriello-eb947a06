@@ -5,7 +5,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Camera, CheckCircle2, Clock, Loader2, ScanFace, XCircle, ArrowLeft, LogOut } from "lucide-react";
 import { api } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
-import { loadFaceModels, detectFace, detectFaceStable, captureVideoFrame } from "@/lib/facial-recognition";
+import { loadFaceModels, detectFace, detectFaceStable, captureVideoFrame, euclideanDistance, maxDistanceForScore, scoreFromDistance } from "@/lib/facial-recognition";
 import { useNavigate } from "react-router-dom";
 
 interface Enrollment {
@@ -49,7 +49,8 @@ function saveEnrollmentsCache(data: EnrollmentCache) {
 interface Matched {
   employee: Enrollment;
   score: number;
-  similarity: number;
+  /** Distância euclidiana até o cadastro — mesma métrica do servidor. */
+  distance: number;
   selfie: string;
   /** Descritor do rosto capturado, revalidado pelo servidor antes do ponto. */
   descriptor: number[];
@@ -64,17 +65,19 @@ const PUNCH_LABELS: Record<string, string> = {
 
 type Phase = "idle" | "loading" | "camera" | "detecting" | "matched" | "confirming" | "success" | "not_found" | "error";
 
-function cosineSimilarity(a: number[], b: number[]): number {
-  const len = Math.min(a.length, b.length);
-  let dot = 0;
-  for (let i = 0; i < len; i++) dot += a[i] * b[i];
-  return dot;
-}
-
-/** Curva de similaridade (0-100). Mesma do backend em face-match.js. */
-function scoreFromSimilarity(similarity: number): number {
-  if (!Number.isFinite(similarity) || similarity <= 0) return 0;
-  return similarity * 100;
+/**
+ * Ranking por distância euclidiana, que é a métrica que o servidor usa para
+ * liberar o ponto (backend/src/services/face-match.js).
+ *
+ * Cosseno não servia aqui: com vetores de 128 dimensões, similaridade 0.90 =
+ * distância 0.447, que o servidor rejeita no limiar 75. O tablet rankeava por
+ * uma régua e o backend julgava por outra.
+ */
+function findBestMatch(descriptor: number[], items: Enrollment[]) {
+  return items
+    .filter((emp) => emp.descriptor?.length && emp.descriptor.length === descriptor.length)
+    .map((emp) => ({ emp, d: euclideanDistance(emp.descriptor, descriptor) }))
+    .sort((x, y) => x.d - y.d);
 }
 
 /** Rejeita se a promessa não resolver a tempo, com mensagem legível. */
@@ -177,7 +180,7 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
   /** Contador de ciclos de busca, exibido para diagnosticar "travado". */
   const [attemptCount, setAttemptCount] = useState(0);
   /** Diagnóstico exibido na tela de "não encontrado". */
-  const [notFoundInfo, setNotFoundInfo] = useState<{ dbSize: number; bestSimilarity: number | null } | null>(null);
+  const [notFoundInfo, setNotFoundInfo] = useState<{ dbSize: number; bestDistance: number | null } | null>(null);
 
   // Redesenha os pontos quando a câmera ou o rosto mudam
   useEffect(() => {
@@ -308,7 +311,7 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
     setAttemptCount(0);
     setNotFoundInfo(null);
     let attempts = 0;
-    let bestSimilarity: number | null = null;
+    let bestDistance: number | null = null;
 
     // setTimeout com delay curto: rAF pode sobrecarregar o CPU em tablets.
     // 50ms é suficiente para não bloquear a UI mas rápido o bastante para
@@ -347,26 +350,20 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
 
         setLandmarks(quick.landmarks);
 
-        const rank = (descriptor: number[]) =>
-          items
-            .filter((emp) => emp.descriptor?.length && emp.descriptor.length === descriptor.length)
-            .map((emp) => ({ emp, s: cosineSimilarity(emp.descriptor, descriptor) }))
-            .sort((x, y) => y.s - x.s);
-
-        const quickRank = rank(quick.descriptor);
+        const quickRank = findBestMatch(quick.descriptor, items);
         const quickBest = quickRank[0];
-        const acceptMin = threshold;
+        const maxDist = maxDistanceForScore(threshold);
 
-        // Rastreia a melhor similaridade para diagnóstico
-        if (quickBest && (bestSimilarity === null || quickBest.s > bestSimilarity)) {
-          bestSimilarity = quickBest.s;
+        // Rastreia a melhor distância para diagnóstico
+        if (quickBest && (bestDistance === null || quickBest.d < bestDistance)) {
+          bestDistance = quickBest.d;
         }
 
         // Só confirma quando o quadro único já está perto o suficiente. A margem
         // dá espaço para a média de vários quadros corrigir a medição.
-        if (!quickBest || quickBest.s < acceptMin * STABLE_CONFIRM_SLACK) {
+        if (!quickBest || quickBest.d > maxDist * STABLE_CONFIRM_SLACK) {
           if (attempts >= MAX_ATTEMPTS_FACE_FOUND) {
-            setNotFoundInfo({ dbSize: items.length, bestSimilarity });
+            setNotFoundInfo({ dbSize: items.length, bestDistance });
             setPhase("not_found");
             stopCamera();
             return;
@@ -383,17 +380,17 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
           scoreThreshold: 0.5,
         });
 
-        const candidates = result ? rank(result.descriptor) : [];
+        const candidates = result ? findBestMatch(result.descriptor, items) : [];
         const winner = candidates[0];
-        const runnerUp = candidates[1]?.s ?? null;
-        const accepted = winner && winner.s >= acceptMin;
-        const ambiguous = accepted && runnerUp !== null && runnerUp > winner.s - AMBIGUITY_MARGIN;
+        const runnerUp = candidates[1]?.d ?? null;
+        const accepted = winner && winner.d <= maxDist;
+        const ambiguous = accepted && runnerUp !== null && runnerUp < winner.d + AMBIGUITY_MARGIN;
 
         if (result && accepted && !ambiguous) {
           const best: Matched = {
             employee: winner.emp,
-            score: Math.round(scoreFromSimilarity(winner.s)),
-            similarity: winner.s,
+            score: Math.round(scoreFromDistance(winner.d)),
+            distance: winner.d,
             selfie: captureVideoFrame(videoRef.current),
             descriptor: result.descriptor,
           };
@@ -511,10 +508,13 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
           accuracy_meters: coords?.accuracy ?? null,
           selfie_url: matched.selfie,
           face_descriptor: matched.descriptor,
-          // Diagnóstico: o servidor recalcula a similaridade de qualquer forma e
-          // registra no log. Enviar a do tablet permite comparar as duas na mesma
-          // linha e ver se elas divergem. Não é usado na decisão.
-          client_similarity: matched.similarity,
+          // Diagnóstico: o servidor recalcula a distância de qualquer forma e
+          // registra no log. Enviar a do tablet permite comparar as duas na
+          // mesma linha e ver se elas divergem. Não é usado na decisão.
+          // O campo tem que se chamar client_distance — o servidor lê esse
+          // nome (rh-kiosk.js); client_similarity era ignorado e o log ficava
+          // sem o número do quiosque.
+          client_distance: matched.distance,
           client_score: matched.score,
         },
       });
@@ -533,12 +533,20 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
       const isFaceRejection =
         face?.code === "FACE_NOT_RECOGNIZED" || face?.code === "FACE_DESCRIPTOR_INVALID";
       if (isFaceRejection) {
+        // O servidor devolve score e distância. Os dois importam: o score é o
+        // que aparece no log, e a distância é o que dá para comparar com o
+        // client_distance acima — se os dois números divergem, a culpa é de
+        // um dos dois lados da medição.
         const parts = [
-          `similaridade ${face.match_score}%`,
+          `score ${face.match_score}%`,
           `mínimo exigido ${face.threshold}%`,
         ];
-        if (Number.isFinite(Number(face.similarity))) parts.push(`similaridade ${face.similarity}`);
-        if (Number.isFinite(Number(face.client_similarity))) parts.push(`quiosque mediu ${face.client_similarity}`);
+        if (Number.isFinite(Number(face.distance))) parts.push(`distância ${Number(face.distance).toFixed(3)}`);
+        if (Number.isFinite(Number(face.max_distance))) parts.push(`máx. ${Number(face.max_distance).toFixed(3)}`);
+        if (Number.isFinite(Number(face.client_distance))) parts.push(`quiosque mediu ${Number(face.client_distance).toFixed(3)}`);
+        if (Number.isFinite(Number(face.enrolled_len)) && Number.isFinite(Number(face.captured_len))) {
+          parts.push(`vetores ${face.enrolled_len}d/${face.captured_len}d`);
+        }
         toast({
           title: "Servidor não confirmou o rosto",
           description: `${face.error} (${parts.join(" · ")}) — o quiosque havia aprovado este mesmo rosto.`,
@@ -684,6 +692,9 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
               <h2 className="text-3xl font-bold mb-2">{matched.employee.full_name}</h2>
               <p className="text-white/70 mb-6">
                 Confiança: <span className="font-semibold text-primary">{matched.score}%</span>
+                <span className="text-white/40 ml-2 text-sm">
+                  (distância {matched.distance.toFixed(3)})
+                </span>
               </p>
 
               <div className="bg-primary/10 border border-primary/30 rounded-2xl p-6 mb-6">
@@ -753,17 +764,19 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
                     <span className="text-white/80 font-medium">Banco de rostos:</span>{" "}
                     {notFoundInfo.dbSize} colaborador{notFoundInfo.dbSize !== 1 ? "es" : ""}
                   </p>
-                  {notFoundInfo.bestSimilarity !== null && (
+                  {notFoundInfo.bestDistance !== null && (
                     <p className="text-white/60">
-                      <span className="text-white/80 font-medium">Melhor similaridade:</span>{" "}
-                      {(notFoundInfo.bestSimilarity * 100).toFixed(1)}%
+                      <span className="text-white/80 font-medium">Melhor distância:</span>{" "}
+                      {Number.isFinite(notFoundInfo.bestDistance)
+                        ? notFoundInfo.bestDistance.toFixed(3)
+                        : "—"}
                       <span className="text-white/40 ml-2">
-                        (mínimo: {minConfidence}%)
+                        (máx. aceita: {maxDistanceForScore(minConfidence).toFixed(3)})
                       </span>
                     </p>
                   )}
                   <p className="text-white/40 text-xs mt-2">
-                    Similaridade maior = rosto mais parecido. Se a melhor similaridade está perto do limiar,
+                    Distância menor = rosto mais parecido. Se a melhor distância está perto do limite,
                     o rosto pode estar mal posicionado ou a biometria precisa ser refeita.
                   </p>
                 </div>

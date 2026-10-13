@@ -194,6 +194,16 @@ export const FaceCaptureDialog = ({ open, onOpenChange, onCapture, title = "Capt
     onOpenChange(false);
   };
 
+  /**
+   * Confiança sempre como string de porcentagem pronta para exibir.
+   *
+   * O score do YuNet vinha sem guarda e um NaN escapava até o badge como
+   * "NaN%". Um detector que devolve algo não numérico agora mostra "—" em vez
+   * de texto quebrado na tela do cadastro.
+   */
+  const confText = (decimals: number) =>
+    Number.isFinite(detection?.confidence) ? `${detection!.confidence.toFixed(decimals)}%` : '—%';
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-lg">
@@ -232,7 +242,7 @@ export const FaceCaptureDialog = ({ open, onOpenChange, onCapture, title = "Capt
               <div className="absolute top-2 right-2">
                 {detection ? (
                   <Badge className="gap-1 bg-green-600">
-                    <CheckCircle2 className="h-3 w-3" /> Rosto detectado ({detection.confidence.toFixed(0)}%)
+                    <CheckCircle2 className="h-3 w-3" /> Rosto detectado ({confText(0)})
                   </Badge>
                 ) : (
                   <Badge variant="secondary" className="gap-1">
@@ -265,7 +275,7 @@ export const FaceCaptureDialog = ({ open, onOpenChange, onCapture, title = "Capt
             <div className="grid grid-cols-3 gap-2 text-center">
               <div className="rounded-lg border border-border p-2">
                 <p className="text-xs text-muted-foreground">Confiança</p>
-                <p className="text-sm font-bold">{detection.confidence.toFixed(1)}%</p>
+                <p className="text-sm font-bold">{confText(1)}</p>
               </div>
               <div className="rounded-lg border border-border p-2">
                 <p className="text-xs text-muted-foreground">Landmarks</p>
