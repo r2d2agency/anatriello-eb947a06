@@ -22,6 +22,7 @@ export const FaceCaptureDialog = ({ open, onOpenChange, onCapture, title = "Capt
   const streamRef = useRef<MediaStream | null>(null);
   const animFrameRef = useRef<number>(0);
   const detectTimeoutRef = useRef<number>(0);
+  const rafRef = useRef<number>(0);
   const detectSessionRef = useRef(0);
   const latestDetectionRef = useRef<FaceDetectionResult | null>(null);
   const capturedDetectionRef = useRef<FaceDetectionResult | null>(null);
@@ -35,9 +36,38 @@ export const FaceCaptureDialog = ({ open, onOpenChange, onCapture, title = "Capt
   const stopCamera = useCallback(() => {
     detectSessionRef.current += 1;
     if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
+    if (rafRef.current) cancelAnimationFrame(rafRef.current);
     if (detectTimeoutRef.current) window.clearTimeout(detectTimeoutRef.current);
     streamRef.current?.getTracks().forEach(t => t.stop());
     streamRef.current = null;
+  }, []);
+
+  /**
+   * Espera até que o vídeo tenha dimensões válidas.
+   *
+   * `video.play()` resolve antes do stream estar pronto em vários navegadores
+   * (WebView Android, Safari iOS): `videoWidth`/`videoHeight` continuam 0 por
+   * vários quadros. Sem esta espera o primeiro ciclo de detecção falha com
+   * "Imagem sem dimensões disponíveis" e o diálogo de cadastro fica procurando
+   * rosto sem nunca detectar — o quiosque não sofre porque já tem o stream
+   * aquecido desde a abertura da tela.
+   */
+  const waitForVideoReady = useCallback((video: HTMLVideoElement, timeoutMs = 10000) => {
+    if (video.videoWidth > 0 && video.videoHeight > 0) return Promise.resolve();
+    return new Promise<void>((resolve) => {
+      const started = Date.now();
+      const check = () => {
+        if (video.videoWidth > 0 && video.videoHeight > 0) { cleanup(); resolve(); return; }
+        if (Date.now() - started > timeoutMs) { cleanup(); resolve(); return; }
+        rafRef.current = requestAnimationFrame(check);
+      };
+      const cleanup = () => {
+        if (rafRef.current) cancelAnimationFrame(rafRef.current);
+        video.removeEventListener('loadedmetadata', check);
+      };
+      video.addEventListener('loadedmetadata', check);
+      check();
+    });
   }, []);
 
   const startCamera = useCallback(async () => {
@@ -47,19 +77,28 @@ export const FaceCaptureDialog = ({ open, onOpenChange, onCapture, title = "Capt
       capturedDetectionRef.current = null;
       setDetection(null);
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } },
+        video: {
+          facingMode: "user",
+          width: { ideal: 640 },
+          height: { ideal: 480 },
+          frameRate: { ideal: 30 },
+        },
+        audio: false,
       });
       streamRef.current = stream;
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         await videoRef.current.play();
+        // Não entra em "detecting" antes do vídeo ter tamanho: a detecção em um
+        // quadro de 0x0 lança e o loop morre sem explicação na tela.
+        await waitForVideoReady(videoRef.current);
         setStatus("detecting");
       }
     } catch {
       setError("Não foi possível acessar a câmera. Verifique as permissões.");
       setStatus("error");
     }
-  }, []);
+  }, [waitForVideoReady]);
 
   const detectLoop = useCallback(async (sessionId: number) => {
     if (!videoRef.current || status !== "detecting" || detectSessionRef.current !== sessionId) return;
