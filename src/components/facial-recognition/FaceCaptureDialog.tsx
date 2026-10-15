@@ -32,6 +32,9 @@ export const FaceCaptureDialog = ({ open, onOpenChange, onCapture, title = "Capt
   const [detection, setDetection] = useState<FaceDetectionResult | null>(null);
   const [capturedImage, setCapturedImage] = useState<string>("");
   const [error, setError] = useState("");
+  // Diagnóstico do quadro: distingue "vídeo preto/zerado" de "YuNet não achou
+  // rosto". Fica visível só enquanto está procurando, some quando detecta.
+  const [diag, setDiag] = useState("");
 
   const stopCamera = useCallback(() => {
     detectSessionRef.current += 1;
@@ -77,12 +80,7 @@ export const FaceCaptureDialog = ({ open, onOpenChange, onCapture, title = "Capt
       capturedDetectionRef.current = null;
       setDetection(null);
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: "user",
-          width: { ideal: 640 },
-          height: { ideal: 480 },
-          frameRate: { ideal: 30 },
-        },
+        video: { facingMode: "user", frameRate: { ideal: 30 } },
         audio: false,
       });
       streamRef.current = stream;
@@ -104,8 +102,51 @@ export const FaceCaptureDialog = ({ open, onOpenChange, onCapture, title = "Capt
     if (!videoRef.current || status !== "detecting" || detectSessionRef.current !== sessionId) return;
 
     try {
-      const result = await detectFace(videoRef.current);
+      // Detectar no <video> diretamente é o que trava o cadastro: em vários
+      // navegadores (WebView Android, Safari iOS) o elemento pode ter
+      // videoWidth/videoHeight > 0 e ainda assim não ter renderizado um único
+      // quadro — drawImage copia preto, YuNet não acha rosto e devolve null
+      // para sempre. Desenhar num canvas primeiro garante um quadro real.
+      const video = videoRef.current;
+      const w = video.videoWidth;
+      const h = video.videoHeight;
+      let result: FaceDetectionResult | null = null;
+      let brightness = -1;
+
+      if (w > 0 && h > 0) {
+        const canvas = document.createElement("canvas");
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext("2d", { willReadFrequently: true });
+        if (ctx) {
+          ctx.drawImage(video, 0, 0, w, h);
+          // Brilho médio do quadro: distingue "vídeo preto" de "YuNet não achou
+          // rosto". Sem isto os dois casos são indistinguíveis na tela.
+          try {
+            const { data } = ctx.getImageData(0, 0, w, h);
+            let sum = 0;
+            const step = 4 * 17; // amostra esparsa, sem custo de ler tudo
+            let count = 0;
+            for (let i = 0; i < data.length; i += step) {
+              sum += data[i] + data[i + 1] + data[i + 2];
+              count++;
+            }
+            brightness = count ? sum / (count * 3) : 0;
+          } catch {
+            brightness = -1;
+          }
+          result = await detectFace(canvas);
+        }
+      }
       if (detectSessionRef.current !== sessionId) return;
+
+      setDiag(
+        !w || !h
+          ? `vídeo sem dimensões (${w}×${h})`
+          : brightness >= 0
+            ? `quadro ${w}×${h} · brilho ${brightness.toFixed(0)}`
+            : `quadro ${w}×${h}`,
+      );
 
       if (result && canvasRef.current) {
         const canvas = canvasRef.current;
@@ -119,6 +160,7 @@ export const FaceCaptureDialog = ({ open, onOpenChange, onCapture, title = "Capt
         latestDetectionRef.current = result;
         setDetection(result);
         setError("");
+        setDiag("");
       } else {
         latestDetectionRef.current = null;
         setDetection(null);
@@ -163,6 +205,7 @@ export const FaceCaptureDialog = ({ open, onOpenChange, onCapture, title = "Capt
       setDetection(null);
       setCapturedImage("");
       setError("");
+      setDiag("");
       return;
     }
 
@@ -286,6 +329,7 @@ export const FaceCaptureDialog = ({ open, onOpenChange, onCapture, title = "Capt
                 ) : (
                   <Badge variant="secondary" className="gap-1">
                     <Loader2 className="h-3 w-3 animate-spin" /> Procurando rosto...
+                    {diag && <span className="ml-1 font-normal opacity-80">[{diag}]</span>}
                   </Badge>
                 )}
               </div>
