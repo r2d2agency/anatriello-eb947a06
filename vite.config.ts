@@ -11,7 +11,12 @@ export default defineConfig(() => ({
   plugins: [
     react(),
     VitePWA({
-      registerType: "prompt",
+      // autoUpdate: o service worker baixa a nova versão e assume sozinho.
+      // Com "prompt" ele só ativava quando alguém chamasse updateSW() — e
+      // ninguém chama (não há registro do virtual module). Resultado: o tablet
+      // instalado continuava executando um bundle antigo para sempre, e correções
+      // publicadas nunca chegavam ao dispositivo.
+      registerType: "autoUpdate",
       includeAssets: ["favicon.ico", "apple-touch-icon.png", "masked-icon.svg"],
       workbox: {
         maximumFileSizeToCacheInBytes: 32 * 1024 * 1024, // 32 MB (ONNX WASM is ~28 MB)
