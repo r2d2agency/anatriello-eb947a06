@@ -186,6 +186,57 @@ router.get('/enrollments', async (req, res) => {
   }
 });
 
+// GET employees whose registration number ends with the given digits.
+//
+// Usado pelo quiosque para o profissional digitar os 5 últimos dígitos da
+// matrícula em vez de esperar o reconhecimento procurar o rosto entre todos.
+// Devolve id/nome/foto/matrícula — NUNCA o descritor: para exibir a confirmação
+// da identidade o descritor não é necessário, e vazar vetores biométricos para
+// o navegador é um risco desnecessário quando a comparação é 1:1 no servidor.
+router.get('/lookup/:digits', async (req, res) => {
+  try {
+    const orgId = await resolveOrgId(req);
+    if (!orgId) return res.status(400).json({ error: 'Organização não identificada' });
+
+    const digits = String(req.params.digits || '').replace(/\D/g, '');
+    // Exigir ao menos 3 dígitos evita uma busca que retorna a organização
+    // inteira numa única teclada, e mantém a lista de confirmação pequena.
+    if (digits.length < 3) {
+      return res.status(400).json({ error: 'Informe ao menos 3 dígitos da matrícula' });
+    }
+
+    const r = await query(
+      `SELECT id, full_name, registration_number, photo_url, face_descriptor, facial_required
+       FROM employees
+       WHERE organization_id = $1
+         AND COALESCE(NULLIF(TRIM(status::text), ''), 'ativo') NOT IN ('desligado','inativo','inactive','terminated','demitido')
+         AND registration_number IS NOT NULL
+         AND TRIM(registration_number) <> ''
+         AND TRIM(registration_number) LIKE $2
+       ORDER BY full_name
+       LIMIT 20`,
+      [orgId, `%${digits}`]
+    );
+
+    const items = r.rows.map((row) => ({
+      id: row.id,
+      full_name: row.full_name,
+      // A matrícula pode ser apenas o sufixo digitado; exibir o valor gravado
+      // é o que permite ao colaborador conferir que é a sua.
+      registration_number: row.registration_number,
+      photo_url: row.photo_url || null,
+      // Só diz se a biometria existe — não devolve o vetor.
+      has_face: !!row.face_descriptor,
+      facial_required: row.facial_required === true,
+    }));
+
+    res.json({ items });
+  } catch (err) {
+    logError('rh.kiosk.lookup', err);
+    res.status(500).json({ error: 'Erro ao buscar colaboradores' });
+  }
+});
+
 // Suggest next punch type based on today's punches for the employee
 router.get('/next-punch/:employeeId', async (req, res) => {
   try {

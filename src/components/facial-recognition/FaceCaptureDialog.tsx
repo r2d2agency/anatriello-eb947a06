@@ -32,8 +32,8 @@ export const FaceCaptureDialog = ({ open, onOpenChange, onCapture, title = "Capt
   const [detection, setDetection] = useState<FaceDetectionResult | null>(null);
   const [capturedImage, setCapturedImage] = useState<string>("");
   const [error, setError] = useState("");
-  // Diagnóstico do quadro: distingue "vídeo preto/zerado" de "YuNet não achou
-  // rosto". Fica visível só enquanto está procurando, some quando detecta.
+  // Diagnóstico do quadro: distingue "vídeo preto/zerado" de "o detector não
+  // achou rosto". Fica visível só enquanto está procurando, some quando detecta.
   const [diag, setDiag] = useState("");
 
   const stopCamera = useCallback(() => {
@@ -105,13 +105,12 @@ export const FaceCaptureDialog = ({ open, onOpenChange, onCapture, title = "Capt
       // Detectar no <video> diretamente é o que trava o cadastro: em vários
       // navegadores (WebView Android, Safari iOS) o elemento pode ter
       // videoWidth/videoHeight > 0 e ainda assim não ter renderizado um único
-      // quadro — drawImage copia preto, YuNet não acha rosto e devolve null
-      // para sempre. Desenhar num canvas primeiro garante um quadro real.
+      // quadro — drawImage copia preto e o detector devolve null para sempre.
+      // Desenhar num canvas primeiro garante um quadro real.
       const video = videoRef.current;
       const w = video.videoWidth;
       const h = video.videoHeight;
       let result: FaceDetectionResult | null = null;
-      let brightness = -1;
 
       if (w > 0 && h > 0) {
         const canvas = document.createElement("canvas");
@@ -120,21 +119,6 @@ export const FaceCaptureDialog = ({ open, onOpenChange, onCapture, title = "Capt
         const ctx = canvas.getContext("2d", { willReadFrequently: true });
         if (ctx) {
           ctx.drawImage(video, 0, 0, w, h);
-          // Brilho médio do quadro: distingue "vídeo preto" de "YuNet não achou
-          // rosto". Sem isto os dois casos são indistinguíveis na tela.
-          try {
-            const { data } = ctx.getImageData(0, 0, w, h);
-            let sum = 0;
-            const step = 4 * 17; // amostra esparsa, sem custo de ler tudo
-            let count = 0;
-            for (let i = 0; i < data.length; i += step) {
-              sum += data[i] + data[i + 1] + data[i + 2];
-              count++;
-            }
-            brightness = count ? sum / (count * 3) : 0;
-          } catch {
-            brightness = -1;
-          }
           result = await detectFace(canvas);
         }
       }
@@ -143,9 +127,7 @@ export const FaceCaptureDialog = ({ open, onOpenChange, onCapture, title = "Capt
       setDiag(
         !w || !h
           ? `vídeo sem dimensões (${w}×${h})`
-          : brightness >= 0
-            ? `quadro ${w}×${h} · brilho ${brightness.toFixed(0)}`
-            : `quadro ${w}×${h}`,
+          : `quadro ${w}×${h}`,
       );
 
       if (result && canvasRef.current) {
@@ -170,8 +152,9 @@ export const FaceCaptureDialog = ({ open, onOpenChange, onCapture, title = "Capt
         }
       }
 
-      // YuNet + MobileFaceNet rodam em ~200ms por quadro mesmo em CPU — rápido
-      // o bastante para uma captura responsiva no tablet.
+      // Intervalo entre detecções. face-api.js sem WebGL leva de 1 a 3s por
+      // quadro no tablet, então o intervalo é só um piso: o próximo ciclo só
+      // começa quando o anterior terminar.
       const nextDelay = 200;
       animFrameRef.current = requestAnimationFrame(() => {
         detectTimeoutRef.current = window.setTimeout(() => {
@@ -279,7 +262,7 @@ export const FaceCaptureDialog = ({ open, onOpenChange, onCapture, title = "Capt
   /**
    * Confiança sempre como string de porcentagem pronta para exibir.
    *
-   * O score do YuNet vinha sem guarda e um NaN escapava até o badge como
+   * O score do detector vinha sem guarda e um NaN escapava até o badge como
    * "NaN%". Um detector que devolve algo não numérico agora mostra "—" em vez
    * de texto quebrado na tela do cadastro.
    */

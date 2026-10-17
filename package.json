@@ -73,7 +73,6 @@
     "leaflet.markercluster": "^1.5.3",
     "lucide-react": "^0.462.0",
     "next-themes": "^0.3.0",
-    "onnxruntime-web": "^1.30.0",
     "pdfjs-dist": "4.10.38",
     "react": "^18.3.1",
     "react-day-picker": "^8.10.1",

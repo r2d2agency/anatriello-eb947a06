@@ -19,7 +19,9 @@ export default defineConfig(() => ({
       registerType: "autoUpdate",
       includeAssets: ["favicon.ico", "apple-touch-icon.png", "masked-icon.svg"],
       workbox: {
-        maximumFileSizeToCacheInBytes: 32 * 1024 * 1024, // 32 MB (ONNX WASM is ~28 MB)
+        // 32 MB: cobre os modelos do face-api.js (SSD MobileNet + landmarks +
+        // reconhecimento) caso entrem no precache, além dos assets do app.
+        maximumFileSizeToCacheInBytes: 32 * 1024 * 1024,
         // version.json must always come from the server. Precaching it can make
         // an old service worker hide a newly published release indefinitely.
         globIgnores: ["**/version.json"],

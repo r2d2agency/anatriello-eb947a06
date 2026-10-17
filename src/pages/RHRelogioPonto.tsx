@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Camera, CheckCircle2, Clock, Loader2, ScanFace, XCircle, ArrowLeft, LogOut } from "lucide-react";
+import { Camera, CheckCircle2, Clock, Loader2, ScanFace, XCircle, ArrowLeft, LogOut, Delete, BadgeCheck } from "lucide-react";
 import { api } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { loadFaceModels, detectFace, detectFaceStable, captureVideoFrame, euclideanDistance, maxDistanceForScore, scoreFromDistance } from "@/lib/facial-recognition";
@@ -56,6 +56,24 @@ interface Matched {
   descriptor: number[];
 }
 
+/**
+ * Colaborador encontrado pela matrícula digitada no quiosque.
+ *
+ * É deliberadamente menor que `Enrollment`: a busca por matrícula não devolve
+ * descritor nenhum (ver rh-kiosk.js), então a comparação 1:1 acontece no
+ * servidor, que tem o vetor cadastrado. Guardar `face_enrolled` é o que
+ * permite avisar na hora quando o colaborador não tem biometria — em vez de
+ * deixar a pessoa esperar a câmera descobrir isso.
+ */
+interface LookupEmployee {
+  id: string;
+  full_name: string;
+  registration_number: string;
+  photo_url: string | null;
+  has_face: boolean;
+  facial_required: boolean;
+}
+
 const PUNCH_LABELS: Record<string, string> = {
   entrada: "Entrada",
   saida_intervalo: "Saída Almoço",
@@ -63,7 +81,28 @@ const PUNCH_LABELS: Record<string, string> = {
   saida: "Saída",
 };
 
-type Phase = "idle" | "loading" | "camera" | "detecting" | "matched" | "confirming" | "success" | "not_found" | "error";
+/**
+ * `"matricula"` é a tela de digitação dos últimos dígitos; `"lookup"` mostra o
+ * resultado da busca para o colaborador confirmar que é ele antes de a câmera
+ * abrir. `"verifying"` é a comparação 1:1 contra aquele único cadastro — mais
+ * barata e mais tolerante que o 1:N, porque não há segundo colocado.
+ */
+type Phase =
+  | "idle"
+  | "matricula"
+  | "lookup"
+  | "loading"
+  | "camera"
+  | "detecting"
+  | "verifying"
+  | "matched"
+  | "confirming"
+  | "success"
+  | "not_found"
+  | "error";
+
+/** Dígitos pedidos na matrícula. 5 é o tamanho do sufixo usado no RH. */
+const MATRICULA_DIGITS = 5;
 
 /**
  * Ranking por distância euclidiana, que é a métrica que o servidor usa para
@@ -115,7 +154,7 @@ const AMBIGUITY_MARGIN = 0.02;
 // cara (média de 5 quadros). Medidas de quadros únicos variam ~0.05.
 const STABLE_CONFIRM_SLACK = 1.25;
 // Tempo total de busca antes de desistir. Cada ciclo custa ~200ms na CPU do
-// tablet (YuNet + MobileFaceNet), então 20 tentativas são
+// tablet (face-api.js sem WebGL), então 20 tentativas são
 // ~4s — tempo de sobra para a pessoa se posicionar, sem a espera infinita que
 // o colaborador viu quando os limites eram 45/30.
 const MAX_ATTEMPTS_NO_FACE = 20;
@@ -181,6 +220,16 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
   const [attemptCount, setAttemptCount] = useState(0);
   /** Diagnóstico exibido na tela de "não encontrado". */
   const [notFoundInfo, setNotFoundInfo] = useState<{ dbSize: number; bestDistance: number | null } | null>(null);
+  // Estado da digitação da matrícula. `lookupResults` guarda a busca anterior
+  // para poder voltar sem digitar de novo; `lookupError` segura a mensagem de
+  // "nenhum colaborador" enquanto o colaborador corrige os dígitos.
+  const [matricula, setMatricula] = useState("");
+  const [lookupResults, setLookupResults] = useState<LookupEmployee[]>([]);
+  const [lookupError, setLookupError] = useState<string | null>(null);
+  const [lookupLoading, setLookupLoading] = useState(false);
+  const [verifyTarget, setVerifyTarget] = useState<LookupEmployee | null>(null);
+  const lookupSeqRef = useRef(0);
+  const lookupTimerRef = useRef<number | null>(null);
 
   // Redesenha os pontos quando a câmera ou o rosto mudam
   useEffect(() => {
@@ -328,13 +377,10 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
       // em silêncio e não há como distinguir as duas situações.
       setAttemptCount(attempts);
       try {
-        // Etapa 1 (barata): um único quadro, detector pequeno. Serve só para
-        // decidir se vale a pena confirmar. Medir a média a cada ciclo custaria
-        // 5 detecções mesmo quando o rosto ainda nem é o da pessoa esperada.
-        const quick = await detectFace(videoRef.current, {
-          workSize: 640,
-          scoreThreshold: 0.5,
-        });
+        // Etapa 1 (barata): um único quadro. Serve só para decidir se vale a
+        // pena confirmar. Medir a média a cada ciclo custaria 5 detecções mesmo
+        // quando o rosto ainda nem é o da pessoa esperada.
+        const quick = await detectFace(videoRef.current);
 
         if (!quick) {
           setLandmarks(null);
@@ -373,12 +419,9 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
           return;
         }
 
-        // Etapa 2 (cara): média de 5 quadros em alta resolução. É aqui que a
-        // decisão final é tomada, nunca com um único quadro.
-        const result = await detectFaceStable(videoRef.current, 5, {
-          workSize: 640,
-          scoreThreshold: 0.5,
-        });
+        // Etapa 2 (cara): média de 5 quadros. É aqui que a decisão final é
+        // tomada, nunca com um único quadro.
+        const result = await detectFaceStable(videoRef.current, 5);
 
         const candidates = result ? findBestMatch(result.descriptor, items) : [];
         const winner = candidates[0];
@@ -507,6 +550,7 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
           longitude: coords?.longitude ?? null,
           accuracy_meters: coords?.accuracy ?? null,
           selfie_url: matched.selfie,
+          employee_id: matched.employee.id,
           face_descriptor: matched.descriptor,
           // Diagnóstico: o servidor recalcula a distância de qualquer forma e
           // registra no log. Enviar a do tablet permite comparar as duas na
@@ -562,6 +606,116 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
       setPhase("matched");
     }
   }, [matched, nextPunch, toast]);
+
+  // ===== Matrícula → busca → confirmação 1:1 =====
+  // No quiosque a digitação da matrícula substitui a busca 1:N: o colaborador
+  // diz quem é, e a câmera confirma que é ele — mais rápido e sem ambiguidade.
+
+  /** Busca colaboradores pelos últimos dígitos da matrícula. */
+  const lookupByMatricula = useCallback(async (digits: string) => {
+    const clean = digits.replace(/\D/g, "").slice(0, MATRICULA_DIGITS);
+    if (clean.length < 3) {
+      setLookupError("Informe ao menos 3 dígitos da matrícula.");
+      setLookupResults([]);
+      setPhase("matricula");
+      return;
+    }
+    setLookupError(null);
+    setLookupLoading(true);
+    const seq = ++lookupSeqRef.current;
+    try {
+      const res = await api<{ items: LookupEmployee[] }>(`/api/rh/kiosk/lookup/${encodeURIComponent(clean)}`);
+      if (lookupSeqRef.current !== seq) return;
+      setLookupResults(res.items || []);
+      setPhase("lookup");
+    } catch (e) {
+      console.error(e);
+      if (lookupSeqRef.current !== seq) return;
+      setLookupResults([]);
+      setLookupError("Não foi possível buscar. Tente novamente.");
+      setPhase("matricula");
+    } finally {
+      if (lookupSeqRef.current === seq) setLookupLoading(false);
+    }
+  }, []);
+
+  /**
+   * Abre a câmera e confirma 1:1 que o rosto é do colaborador escolhido.
+   *
+   * O descritor cadastrado NÃO vem na resposta do /lookup (o endpoint não
+   * devolve vetor biométrico para o navegador). A comparação é feita no
+   * servidor no momento do POST /punch — aqui basta capturar o descritor e
+   * guardá-lo no `matched` para enviar junto.
+   */
+  const startVerify = useCallback(async (employee: LookupEmployee) => {
+    setVerifyTarget(employee);
+    setPhase("loading");
+    setStatusMsg("Carregando reconhecimento facial…");
+    try {
+      await withTimeout(loadFaceModels(), 20000, "O download dos modelos demorou demais. Verifique a internet do tablet.");
+      setStatusMsg("Abrindo câmera…");
+      let stream = streamRef.current;
+      const alive = stream?.getVideoTracks().some((t) => t.readyState === "live");
+      if (!stream || !alive) {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 30 } },
+          audio: false,
+        });
+        streamRef.current = stream;
+      }
+      setCamWarning(null);
+      if (videoRef.current) {
+        if (videoRef.current.srcObject !== stream) videoRef.current.srcObject = stream;
+        await videoRef.current.play();
+      }
+      setPhase("detecting");
+      setStatusMsg("Posicione o rosto no centro…");
+      let attempts = 0;
+      const verify = async (): Promise<void> => {
+        if (!videoRef.current) return;
+        attempts++;
+        setAttemptCount(attempts);
+        try {
+          const result = await detectFaceStable(videoRef.current, 5);
+          if (!result) {
+            if (attempts >= MAX_ATTEMPTS_NO_FACE) { setPhase("not_found"); stopCamera(); return; }
+            setStatusMsg("Posicione o rosto no centro…");
+            detectLoopRef.current = window.setTimeout(() => void verify(), RETRY_DELAY_MS);
+            return;
+          }
+          setLandmarks(result.landmarks);
+          const best: Matched = {
+            employee: {
+              id: employee.id,
+              full_name: employee.full_name,
+              photo_url: employee.photo_url,
+              descriptor: [],
+              facial_required: employee.facial_required,
+            },
+            score: 0,
+            distance: 0,
+            selfie: captureVideoFrame(videoRef.current),
+            descriptor: result.descriptor,
+          };
+          setMatched(best);
+          try {
+            const np = await api<{ next: string }>(`/api/rh/kiosk/next-punch/${employee.id}`);
+            setNextPunch(np.next || "entrada");
+          } catch { setNextPunch("entrada"); }
+          setPhase("matched");
+          stopCamera();
+        } catch (e) {
+          console.error(e);
+          detectLoopRef.current = window.setTimeout(() => void verify(), RETRY_DELAY_MS);
+        }
+      };
+      void verify();
+    } catch (err: any) {
+      console.error(err);
+      toast({ title: "Erro ao abrir câmera", description: err?.message || "Verifique permissões", variant: "destructive" });
+      setPhase("error");
+    }
+  }, [stopCamera, toast]);
 
   const cancel = useCallback(() => {
     stopCamera();
@@ -620,11 +774,11 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
             </div>
             <h2 className="text-4xl font-bold mb-3">Pronto para registrar</h2>
             <p className="text-white/70 text-lg mb-8">
-              Toque no botão abaixo e olhe para a câmera. Vamos identificar você automaticamente.
+              Digite os últimos dígitos da sua matrícula para identificar você.
             </p>
             <Button
               size="lg"
-              onClick={startCapture}
+              onClick={() => { setMatricula(""); setLookupError(null); setLookupResults([]); setPhase("matricula"); }}
               className="h-20 px-16 text-2xl font-semibold rounded-2xl bg-primary hover:bg-primary/90 shadow-2xl shadow-primary/30"
             >
               <Camera className="h-8 w-8 mr-3" />
@@ -635,6 +789,142 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
                 {camWarning}
               </p>
             )}
+          </div>
+        )}
+
+        {phase === "matricula" && (
+          <div className="w-full max-w-md">
+            <Card className="bg-black/40 border-white/10 p-6">
+              <h2 className="text-2xl font-bold mb-2 text-center">Digite sua matrícula</h2>
+              <p className="text-white/60 text-sm mb-6 text-center">
+                Informe os últimos {MATRICULA_DIGITS} dígitos do seu número de registro.
+              </p>
+              <div className="mb-4">
+                <div className="text-center text-4xl font-mono tracking-[0.3em] bg-white/5 border border-white/10 rounded-xl py-4 mb-4 min-h-[4.5rem] flex items-center justify-center">
+                  {matricula.padEnd(MATRICULA_DIGITS, "•")}
+                </div>
+                {lookupError && (
+                  <p className="text-sm text-amber-300 bg-amber-500/10 border border-amber-400/20 rounded-lg px-3 py-2 text-center">
+                    {lookupError}
+                  </p>
+                )}
+              </div>
+              <div className="grid grid-cols-3 gap-2 mb-4">
+                {["1","2","3","4","5","6","7","8","9"].map((d) => (
+                  <Button
+                    key={d}
+                    variant="outline"
+                    className="h-14 text-2xl font-mono"
+                    onClick={() => {
+                      if (matricula.length < MATRICULA_DIGITS) {
+                        const next = matricula + d;
+                        setMatricula(next);
+                        setLookupError(null);
+                        if (next.length === MATRICULA_DIGITS) {
+                          void lookupByMatricula(next);
+                        }
+                      }
+                    }}
+                  >
+                    {d}
+                  </Button>
+                ))}
+                <Button
+                  variant="outline"
+                  className="h-14 text-xl"
+                  onClick={() => setMatricula((m) => m.slice(0, -1))}
+                  disabled={!matricula}
+                >
+                  <Delete className="h-5 w-5" />
+                </Button>
+                <Button
+                  variant="outline"
+                  className="h-14 text-2xl font-mono"
+                  onClick={() => {
+                    if (matricula.length < MATRICULA_DIGITS) {
+                      const next = matricula + "0";
+                      setMatricula(next);
+                      setLookupError(null);
+                      if (next.length === MATRICULA_DIGITS) {
+                        void lookupByMatricula(next);
+                      }
+                    }
+                  }}
+                >
+                  0
+                </Button>
+                <Button
+                  variant="outline"
+                  className="h-14 text-xl"
+                  onClick={() => setPhase("idle")}
+                >
+                  <ArrowLeft className="h-5 w-5" />
+                </Button>
+              </div>
+              {lookupLoading && (
+                <div className="flex items-center justify-center gap-2 text-white/60 text-sm">
+                  <Loader2 className="h-4 w-4 animate-spin" /> Buscando…
+                </div>
+              )}
+            </Card>
+          </div>
+        )}
+
+        {phase === "lookup" && (
+          <div className="w-full max-w-md">
+            <Card className="bg-black/40 border-white/10 p-6">
+              <h2 className="text-2xl font-bold mb-2 text-center">Confirme sua identidade</h2>
+              <p className="text-white/60 text-sm mb-6 text-center">
+                {lookupResults.length === 1
+                  ? "É você? Toque em Confirmar para continuar."
+                  : "Encontramos mais de um colaborador. Selecione o seu nome."}
+              </p>
+              <div className="space-y-2 mb-6 max-h-80 overflow-y-auto">
+                {lookupResults.map((emp) => (
+                  <button
+                    key={emp.id}
+                    onClick={() => {
+                      if (!emp.has_face) {
+                        toast({
+                          title: "Biometria não cadastrada",
+                          description: `${emp.full_name} não possui cadastro facial. Fale com o RH.`,
+                          variant: "destructive",
+                        });
+                        return;
+                      }
+                      void startVerify(emp);
+                    }}
+                    className="w-full flex items-center gap-4 p-4 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 hover:border-primary/50 transition-colors text-left"
+                  >
+                    <Avatar className="h-12 w-12">
+                      {emp.photo_url && <AvatarImage src={emp.photo_url} alt={emp.full_name} />}
+                      <AvatarFallback className="text-lg font-bold">
+                        {emp.full_name.split(" ").map((n) => n[0]).slice(0, 2).join("").toUpperCase()}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-semibold text-lg truncate">{emp.full_name}</p>
+                      <p className="text-sm text-white/50">Matrícula: {emp.registration_number}</p>
+                    </div>
+                    {emp.has_face ? (
+                      <BadgeCheck className="h-6 w-6 text-green-400 shrink-0" />
+                    ) : (
+                      <XCircle className="h-6 w-6 text-amber-400 shrink-0" />
+                    )}
+                  </button>
+                ))}
+                {lookupResults.length === 0 && !lookupLoading && (
+                  <p className="text-center text-white/50 py-8">Nenhum colaborador encontrado.</p>
+                )}
+              </div>
+              <Button
+                variant="ghost"
+                className="w-full"
+                onClick={() => { setPhase("matricula"); setLookupResults([]); setLookupError(null); }}
+              >
+                <ArrowLeft className="h-4 w-4 mr-2" /> Voltar
+              </Button>
+            </Card>
           </div>
         )}
 
