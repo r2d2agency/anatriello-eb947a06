@@ -17,24 +17,100 @@ async function resolveOrgId(req) {
   return r.rows[0]?.organization_id || null;
 }
 
+async function ensureSchema() {
+  try {
+    await query(`
+      CREATE TABLE IF NOT EXISTS rh_document_categories (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+        name VARCHAR(100) NOT NULL,
+        slug VARCHAR(100) NOT NULL,
+        color VARCHAR(20) DEFAULT '#6366f1',
+        is_system BOOLEAN DEFAULT false,
+        active BOOLEAN DEFAULT true,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW(),
+        UNIQUE(organization_id, slug)
+      );
+    `);
+    await query(`CREATE INDEX IF NOT EXISTS idx_doc_categories_org ON rh_document_categories(organization_id);`);
+    await query(`
+      CREATE TABLE IF NOT EXISTS rh_document_library (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+        category_id UUID REFERENCES rh_document_categories(id) ON DELETE SET NULL,
+        title VARCHAR(255) NOT NULL,
+        code VARCHAR(50),
+        summary TEXT,
+        tags TEXT[],
+        status VARCHAR(20) DEFAULT 'rascunho',
+        is_mandatory BOOLEAN DEFAULT false,
+        current_version_id UUID,
+        created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW(),
+        last_updated_at TIMESTAMPTZ DEFAULT NOW()
+      );
+    `);
+    await query(`CREATE INDEX IF NOT EXISTS idx_doc_library_org ON rh_document_library(organization_id);`);
+    await query(`CREATE INDEX IF NOT EXISTS idx_doc_library_cat ON rh_document_library(category_id);`);
+    await query(`CREATE INDEX IF NOT EXISTS idx_doc_library_status ON rh_document_library(status);`);
+    await query(`
+      CREATE TABLE IF NOT EXISTS rh_document_library_versions (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        document_id UUID NOT NULL REFERENCES rh_document_library(id) ON DELETE CASCADE,
+        version_number INTEGER NOT NULL DEFAULT 1,
+        file_url TEXT NOT NULL,
+        file_name VARCHAR(255),
+        file_size INTEGER,
+        file_hash VARCHAR(128),
+        change_reason TEXT,
+        published_by UUID REFERENCES users(id) ON DELETE SET NULL,
+        published_at TIMESTAMPTZ DEFAULT NOW(),
+        is_current BOOLEAN DEFAULT true,
+        UNIQUE(document_id, version_number)
+      );
+    `);
+    await query(`CREATE INDEX IF NOT EXISTS idx_doc_lib_versions_doc ON rh_document_library_versions(document_id);`);
+    await query(`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'rh_document_deliveries' AND column_name = 'library_document_id') THEN
+          ALTER TABLE rh_document_deliveries ADD COLUMN library_document_id UUID REFERENCES rh_document_library(id) ON DELETE SET NULL;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'rh_document_deliveries' AND column_name = 'library_version_id') THEN
+          ALTER TABLE rh_document_deliveries ADD COLUMN library_version_id UUID REFERENCES rh_document_library_versions(id) ON DELETE SET NULL;
+        END IF;
+      END $$;
+    `);
+  } catch (e) {
+    console.error('document-library.ensureSchema', e);
+  }
+}
+
 async function ensureCategories(orgId) {
-  const existing = await query(`SELECT COUNT(*) as c FROM rh_document_categories WHERE organization_id = $1`, [orgId]);
-  if (Number(existing.rows[0]?.c || 0) > 0) return;
-  const defaults = [
-    { name: 'POP', slug: 'pop', color: '#3b82f6' },
-    { name: 'Procedimento', slug: 'procedimento', color: '#22c55e' },
-    { name: 'Política', slug: 'politica', color: '#a855f7' },
-    { name: 'Manual', slug: 'manual', color: '#f59e0b' },
-    { name: 'Formulário', slug: 'formulario', color: '#06b6d4' },
-    { name: 'Comunicado', slug: 'comunicado', color: '#64748b' },
-    { name: 'Treinamento', slug: 'treinamento', color: '#10b981' },
-    { name: 'Outro', slug: 'outro', color: '#94a3b8' },
-  ];
-  for (const cat of defaults) {
-    await query(
-      `INSERT INTO rh_document_categories (organization_id, name, slug, color, is_system, active) VALUES ($1,$2,$3,$4,true,true) ON CONFLICT (organization_id, slug) DO NOTHING`,
-      [orgId, cat.name, cat.slug, cat.color]
-    );
+  try {
+    await ensureSchema();
+    const existing = await query(`SELECT COUNT(*) as c FROM rh_document_categories WHERE organization_id = $1`, [orgId]);
+    if (Number(existing.rows[0]?.c || 0) > 0) return;
+    const defaults = [
+      { name: 'POP', slug: 'pop', color: '#3b82f6' },
+      { name: 'Procedimento', slug: 'procedimento', color: '#22c55e' },
+      { name: 'Política', slug: 'politica', color: '#a855f7' },
+      { name: 'Manual', slug: 'manual', color: '#f59e0b' },
+      { name: 'Formulário', slug: 'formulario', color: '#06b6d4' },
+      { name: 'Comunicado', slug: 'comunicado', color: '#64748b' },
+      { name: 'Treinamento', slug: 'treinamento', color: '#10b981' },
+      { name: 'Outro', slug: 'outro', color: '#94a3b8' },
+    ];
+    for (const cat of defaults) {
+      await query(
+        `INSERT INTO rh_document_categories (organization_id, name, slug, color, is_system, active) VALUES ($1,$2,$3,$4,true,true) ON CONFLICT (organization_id, slug) DO NOTHING`,
+        [orgId, cat.name, cat.slug, cat.color]
+      );
+    }
+  } catch (e) {
+    console.error('document-library.ensureCategories', e);
   }
 }
 
@@ -48,7 +124,7 @@ router.get('/categories', async (req, res) => {
     res.json(r.rows);
   } catch (err) {
     console.error('document-library.categories.get', err);
-    res.status(500).json({ error: 'Erro ao listar categorias' });
+    res.status(500).json({ error: 'Erro ao listar categorias', detail: err.message });
   }
 });
 

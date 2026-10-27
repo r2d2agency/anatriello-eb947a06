@@ -54,7 +54,7 @@ export default function RHDocumentos() {
   const sendNotice = useSendNotice();
   const { toast } = useToast();
 
-  // Central de POPs
+  // Central de Documentos
   const { data: docCategories } = useDocumentCategories();
   const { data: libraryDocs, isLoading: loadingLibrary } = useDocumentLibrary();
   const createLibraryDoc = useCreateDocumentLibrary();
@@ -174,7 +174,7 @@ export default function RHDocumentos() {
           <TabsList>
             <TabsTrigger value="enviados">Enviados ao Colaborador</TabsTrigger>
             <TabsTrigger value="recebidos">Recebidos do Colaborador</TabsTrigger>
-            <TabsTrigger value="biblioteca">Central de POPs</TabsTrigger>
+            <TabsTrigger value="biblioteca">Central de Documentos</TabsTrigger>
           </TabsList>
 
           <TabsContent value="enviados" className="space-y-3">
@@ -464,10 +464,10 @@ export default function RHDocumentos() {
         </DialogContent>
       </Dialog>
 
-      {/* Novo documento na Central de POPs */}
+      {/* Novo documento na Central de Documentos */}
       <Dialog open={showNewLibraryDoc} onOpenChange={setShowNewLibraryDoc}>
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
-          <DialogHeader><DialogTitle className="flex items-center gap-2"><LibraryBig className="h-5 w-5" /> Novo documento oficial (POP/Procedimento)</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle className="flex items-center gap-2"><LibraryBig className="h-5 w-5" /> Novo documento oficial</DialogTitle></DialogHeader>
           <div className="space-y-3">
             <div className="space-y-1"><Label>Título *</Label><Input value={newLibForm.title} onChange={e => setNewLibForm(f => ({...f, title: e.target.value}))} placeholder="Ex: POP - Abertura de Caixa" /></div>
             <div className="grid grid-cols-2 gap-2">
@@ -520,7 +520,7 @@ export default function RHDocumentos() {
         </DialogContent>
       </Dialog>
 
-      {/* Enviar da Central de POPs */}
+      {/* Enviar da Central de Documentos */}
       <Dialog open={showLibrarySend} onOpenChange={setShowLibrarySend}>
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader><DialogTitle className="flex items-center gap-2"><Send className="h-5 w-5" /> Enviar documento da Central</DialogTitle></DialogHeader>
@@ -570,7 +570,7 @@ export default function RHDocumentos() {
       {/* Gerenciar categorias */}
       <Dialog open={showNewCategory} onOpenChange={setShowNewCategory}>
         <DialogContent className="max-w-md">
-          <DialogHeader><DialogTitle className="flex items-center gap-2"><FolderOpen className="h-5 w-5" /> Categorias da Central de POPs</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle className="flex items-center gap-2"><FolderOpen className="h-5 w-5" /> Categorias da Central de Documentos</DialogTitle></DialogHeader>
           <div className="space-y-3">
             <div className="grid grid-cols-5 gap-2">
               <div className="col-span-4 space-y-1"><Label>Nome da categoria</Label><Input value={newCategoryForm.name} onChange={e=>setNewCategoryForm(f=>({...f, name: e.target.value}))} placeholder="Ex: Norma" /></div>
