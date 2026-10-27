@@ -136,13 +136,46 @@ router.post('/categories', async (req, res) => {
     if (!name) return res.status(400).json({ error: 'Nome obrigatório' });
     const finalSlug = (slug || name).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
     const r = await query(
-      `INSERT INTO rh_document_categories (organization_id, name, slug, color, is_system, active) VALUES ($1,$2,$3,$4,false,true) ON CONFLICT (organization_id, slug) DO UPDATE SET name = EXCLUDED.name, active = true RETURNING *`,
+      `INSERT INTO rh_document_categories (organization_id, name, slug, color, is_system, active) VALUES ($1,$2,$3,$4,false,true) ON CONFLICT (organization_id, slug) DO UPDATE SET name = EXCLUDED.name, color = EXCLUDED.color, active = true RETURNING *`,
       [orgId, name, finalSlug, color || '#6366f1']
     );
     res.json(r.rows[0]);
   } catch (err) {
     console.error('document-library.categories.post', err);
     res.status(500).json({ error: 'Erro ao criar categoria' });
+  }
+});
+
+router.patch('/categories/:id', async (req, res) => {
+  try {
+    const orgId = await resolveOrgId(req);
+    if (!orgId) return res.status(400).json({ error: 'Organização não identificada' });
+    const { name, color, active } = req.body || {};
+    const r = await query(
+      `UPDATE rh_document_categories SET name = COALESCE($1,name), color = COALESCE($2,color), active = COALESCE($3,active), updated_at = NOW() WHERE id = $4 AND organization_id = $5 RETURNING *`,
+      [name || null, color || null, typeof active === 'boolean' ? active : null, req.params.id, orgId]
+    );
+    if (!r.rows[0]) return res.status(404).json({ error: 'Categoria não encontrada' });
+    res.json(r.rows[0]);
+  } catch (err) {
+    console.error('document-library.categories.patch', err);
+    res.status(500).json({ error: 'Erro ao atualizar categoria' });
+  }
+});
+
+router.delete('/categories/:id', async (req, res) => {
+  try {
+    const orgId = await resolveOrgId(req);
+    if (!orgId) return res.status(400).json({ error: 'Organização não identificada' });
+    const cat = await query(`SELECT is_system FROM rh_document_categories WHERE id = $1 AND organization_id = $2`, [req.params.id, orgId]);
+    if (!cat.rows[0]) return res.status(404).json({ error: 'Categoria não encontrada' });
+    if (cat.rows[0].is_system) return res.status(400).json({ error: 'Não é possível excluir categoria padrão' });
+    await query(`UPDATE rh_document_library SET category_id = NULL WHERE category_id = $1`, [req.params.id]);
+    await query(`DELETE FROM rh_document_categories WHERE id = $1 AND organization_id = $2`, [req.params.id, orgId]);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('document-library.categories.delete', err);
+    res.status(500).json({ error: 'Erro ao excluir categoria' });
   }
 });
 
@@ -254,25 +287,55 @@ router.patch('/:id', async (req, res) => {
     const orgId = await resolveOrgId(req);
     if (!orgId) return res.status(400).json({ error: 'Organização não identificada' });
     const { title, code, category_id, summary, tags, status, is_mandatory } = req.body || {};
+    const setCatNull = category_id === null || category_id === '';
+    const catId = setCatNull ? null : category_id;
     const r = await query(
       `UPDATE rh_document_library SET
          title = COALESCE($1,title),
-         code = COALESCE($2,code),
-         category_id = CASE WHEN $9 THEN $3::uuid ELSE category_id END,
-         summary = COALESCE($4,summary),
-         tags = COALESCE($5,tags),
+         code = CASE WHEN $2 IS NULL THEN code ELSE $2 END,
+         category_id = CASE WHEN $11 THEN NULL ELSE COALESCE($3, category_id) END,
+         summary = CASE WHEN $4 IS NULL THEN summary ELSE $4 END,
+         tags = CASE WHEN $5 IS NULL THEN tags ELSE $5 END,
          status = COALESCE($6,status),
          is_mandatory = COALESCE($7,is_mandatory),
          updated_at = NOW(),
          last_updated_at = NOW()
        WHERE id = $8 AND organization_id = $10 RETURNING *`,
-      [title || null, code || null, category_id || null, summary || null, Array.isArray(tags) ? tags : null, status || null, typeof is_mandatory === 'boolean' ? is_mandatory : null, req.params.id, category_id === null, orgId]
+      [
+        title !== undefined ? title : null,
+        code !== undefined ? (code === '' ? null : code) : null,
+        catId,
+        summary !== undefined ? (summary === '' ? null : summary) : null,
+        tags !== undefined ? (Array.isArray(tags) ? tags : null) : null,
+        status || null,
+        typeof is_mandatory === 'boolean' ? is_mandatory : null,
+        req.params.id,
+        setCatNull,
+        orgId,
+        setCatNull
+      ]
     );
     if (!r.rows[0]) return res.status(404).json({ error: 'Documento não encontrado' });
     res.json(r.rows[0]);
   } catch (err) {
     console.error('document-library.patch', err);
     res.status(500).json({ error: 'Erro ao atualizar documento' });
+  }
+});
+
+router.delete('/:id', async (req, res) => {
+  try {
+    const orgId = await resolveOrgId(req);
+    if (!orgId) return res.status(400).json({ error: 'Organização não identificada' });
+    const exists = await query(`SELECT id FROM rh_document_library WHERE id = $1 AND organization_id = $2`, [req.params.id, orgId]);
+    if (!exists.rows[0]) return res.status(404).json({ error: 'Documento não encontrado' });
+    await query(`DELETE FROM rh_document_library_versions WHERE document_id = $1`, [req.params.id]);
+    await query(`UPDATE rh_document_deliveries SET library_document_id = NULL, library_version_id = NULL WHERE library_document_id = $1`, [req.params.id]);
+    await query(`DELETE FROM rh_document_library WHERE id = $1`, [req.params.id]);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('document-library.delete', err);
+    res.status(500).json({ error: 'Erro ao excluir documento' });
   }
 });
 

@@ -133,3 +133,29 @@ export const useSendDocumentLibrary = (id: string) => {
     },
   });
 };
+
+export const useDeleteDocumentLibrary = (id: string) => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api(`/api/rh/document-library/${id}`, { method: "DELETE" }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["document-library"] });
+    },
+  });
+};
+
+export const useUpdateDocumentCategory = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: Partial<DocumentCategory> }) => api(`/api/rh/document-library/categories/${id}`, { method: "PATCH", body: data }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["document-categories"] }),
+  });
+};
+
+export const useDeleteDocumentCategory = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api(`/api/rh/document-library/categories/${id}`, { method: "DELETE" }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["document-categories"] }),
+  });
+};

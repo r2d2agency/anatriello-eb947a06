@@ -14,7 +14,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { useToast } from "@/hooks/use-toast";
 import { useEmployees } from "@/hooks/use-rh";
 import { useDocumentDeliveries, useSendDocumentDelivery, useInboundDocumentsRH, useDocumentTypes, useSendNotice } from "@/hooks/use-promotor";
-import { useDocumentCategories, useDocumentLibrary, useCreateDocumentLibrary, useAddDocumentVersion, useSendDocumentLibrary, useCreateDocumentCategory, useUpdateDocumentLibrary } from "@/hooks/use-document-library";
+import { useDocumentCategories, useDocumentLibrary, useCreateDocumentLibrary, useAddDocumentVersion, useSendDocumentLibrary, useCreateDocumentCategory, useUpdateDocumentLibrary, useDeleteDocumentLibrary, useUpdateDocumentCategory, useDeleteDocumentCategory } from "@/hooks/use-document-library";
 import { FileUploadInput } from "@/components/ui/file-upload-input";
 import { FileText, Send, Search, Megaphone, Loader2, Users, Plus, LibraryBig, History, Tag, FolderOpen, Upload, RefreshCw, Archive, CheckCircle2 } from "lucide-react";
 import { format } from "date-fns";
@@ -59,6 +59,15 @@ export default function RHDocumentos() {
   const { data: libraryDocs, isLoading: loadingLibrary } = useDocumentLibrary();
   const createLibraryDoc = useCreateDocumentLibrary();
   const createCategory = useCreateDocumentCategory();
+  const updateCategory = useUpdateDocumentCategory();
+  const deleteCategory = useDeleteDocumentCategory();
+
+  const [editLibDoc, setEditLibDoc] = useState<any>(null);
+  const [editLibForm, setEditLibForm] = useState({ title: '', code: '', category_id: '', summary: '', tags: '', is_mandatory: false, status: 'rascunho' });
+  const updateLibraryDocMut = useUpdateDocumentLibrary(editLibDoc?.id || '');
+
+  const [editCat, setEditCat] = useState<any>(null);
+  const [editCatForm, setEditCatForm] = useState({ name: '', color: '#6366f1' });
   const addVersion = useAddDocumentVersion("");
   const sendLibraryDoc = useSendDocumentLibrary("");
   const updateLibraryDoc = useUpdateDocumentLibrary("");
@@ -319,8 +328,17 @@ export default function RHDocumentos() {
                       <TableCell className="text-right space-x-1">
                         <Button variant="ghost" size="sm" onClick={() => { setSelectedLibraryDoc(d); setNewVersionForm({ file_url: '', change_reason: '' }); setShowNewVersion(true); }}><History className="h-4 w-4 mr-1" /> Nova versão</Button>
                         <Button variant="ghost" size="sm" onClick={() => { setSelectedLibraryDoc(d); setLibSendForm({ employee_ids: [], sendToAll: false, requires_confirmation: true, requires_signature: false, description: '' }); setShowLibrarySend(true); }} disabled={d.status !== 'ativo'}><Send className="h-4 w-4 mr-1" /> Enviar</Button>
-                        {d.status === 'rascunho' && <Button variant="ghost" size="sm" onClick={async () => { try { await updateLibraryDoc.mutateAsync({ status: 'ativo' } as any); toast({ title: 'Documento publicado como ativo' }); } catch(e:any){ toast({ title: 'Erro', description: e.message, variant: 'destructive' }); } }}><CheckCircle2 className="h-4 w-4 mr-1" /> Publicar</Button>}
-                        {d.status === 'ativo' && <Button variant="ghost" size="sm" onClick={async () => { try { await updateLibraryDoc.mutateAsync({ status: 'arquivado' } as any); toast({ title: 'Documento arquivado' }); } catch(e:any){ toast({ title: 'Erro', description: e.message, variant: 'destructive' }); } }}><Archive className="h-4 w-4 mr-1" /> Arquivar</Button>}
+                        <Button variant="ghost" size="sm" onClick={() => { setEditLibDoc(d); setEditLibForm({ title: d.title || '', code: d.code || '', category_id: d.category_id || '', summary: d.summary || '', tags: Array.isArray(d.tags) ? d.tags.join(', ') : '', is_mandatory: !!d.is_mandatory, status: d.status || 'rascunho' }); }}>Editar</Button>
+                        {d.status === 'rascunho' && <Button variant="ghost" size="sm" onClick={async () => { try { const u = useUpdateDocumentLibrary(d.id); await u.mutateAsync({ status: 'ativo' } as any); toast({ title: 'Documento publicado como ativo' }); } catch(e:any){ toast({ title: 'Erro', description: e.message, variant: 'destructive' }); } }}><CheckCircle2 className="h-4 w-4 mr-1" /> Publicar</Button>}
+                        {d.status === 'ativo' && <Button variant="ghost" size="sm" onClick={async () => { try { const u = useUpdateDocumentLibrary(d.id); await u.mutateAsync({ status: 'arquivado' } as any); toast({ title: 'Documento arquivado' }); } catch(e:any){ toast({ title: 'Erro', description: e.message, variant: 'destructive' }); } }}><Archive className="h-4 w-4 mr-1" /> Arquivar</Button>}
+                        <Button variant="ghost" size="sm" className="text-destructive" onClick={async () => {
+                          if (!confirm('Excluir este documento e todas as suas versões?')) return;
+                          try {
+                            const del = useDeleteDocumentLibrary(d.id);
+                            await del.mutateAsync();
+                            toast({ title: 'Documento excluído' });
+                          } catch(e:any){ toast({ title: 'Erro', description: e.message, variant: 'destructive' }); }
+                        }}>Excluir</Button>
                       </TableCell>
                     </TableRow>
                   ))}
@@ -587,9 +605,94 @@ export default function RHDocumentos() {
               {(docCategories || []).map((c:any)=>(
                 <div key={c.id} className="flex items-center justify-between p-2">
                   <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full" style={{ backgroundColor: c.color }} /><span className="text-sm">{c.name}</span>{c.is_system && <Badge variant="outline" className="text-xs">padrão</Badge>}</div>
+                  {!c.is_system && (
+                    <div className="flex items-center gap-1">
+                      <Button variant="ghost" size="sm" onClick={() => { setEditCat(c); setEditCatForm({ name: c.name || '', color: c.color || '#6366f1' }); }}>Editar</Button>
+                      <Button variant="ghost" size="sm" className="text-destructive" onClick={async () => {
+                        if (!confirm('Excluir esta categoria?')) return;
+                        try {
+                          await deleteCategory.mutateAsync(c.id);
+                          toast({ title: 'Categoria excluída' });
+                        } catch(e:any){ toast({ title: 'Erro', description: e.message, variant: 'destructive' }); }
+                      }}>Excluir</Button>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Editar documento */}
+      <Dialog open={!!editLibDoc} onOpenChange={(o) => !o && setEditLibDoc(null)}>
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+          <DialogHeader><DialogTitle className="flex items-center gap-2"><LibraryBig className="h-5 w-5" /> Editar documento</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1"><Label>Título *</Label><Input value={editLibForm.title} onChange={e=>setEditLibForm(f=>({...f, title: e.target.value}))} /></div>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1"><Label>Código</Label><Input value={editLibForm.code} onChange={e=>setEditLibForm(f=>({...f, code: e.target.value}))} /></div>
+              <div className="space-y-1"><Label>Categoria</Label>
+                <Select value={editLibForm.category_id || 'none'} onValueChange={v=>setEditLibForm(f=>({...f, category_id: v === 'none' ? '' : v}))}>
+                  <SelectTrigger><SelectValue placeholder="Sem categoria" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Sem categoria</SelectItem>
+                    {(docCategories || []).map((c:any)=><SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="space-y-1"><Label>Resumo/Descrição</Label><Textarea value={editLibForm.summary} onChange={e=>setEditLibForm(f=>({...f, summary: e.target.value}))} rows={2} /></div>
+            <div className="space-y-1"><Label>Tags (separadas por vírgula)</Label><Input value={editLibForm.tags} onChange={e=>setEditLibForm(f=>({...f, tags: e.target.value}))} /></div>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1"><Label>Status</Label>
+                <Select value={editLibForm.status} onValueChange={v=>setEditLibForm(f=>({...f, status: v}))}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="rascunho">Rascunho</SelectItem>
+                    <SelectItem value="ativo">Ativo</SelectItem>
+                    <SelectItem value="arquivado">Arquivado</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex items-end pb-2"><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={editLibForm.is_mandatory} onChange={e=>setEditLibForm(f=>({...f, is_mandatory: e.target.checked}))} /> Documento obrigatório</label></div>
+            </div>
+            <Button className="w-full" disabled={updateLibraryDocMut.isPending || !editLibForm.title} onClick={async ()=>{
+              try {
+                const tags = editLibForm.tags ? editLibForm.tags.split(',').map(t=>t.trim()).filter(Boolean) : [];
+                await updateLibraryDocMut.mutateAsync({
+                  title: editLibForm.title,
+                  code: editLibForm.code,
+                  category_id: editLibForm.category_id || null,
+                  summary: editLibForm.summary,
+                  tags,
+                  status: editLibForm.status,
+                  is_mandatory: editLibForm.is_mandatory
+                } as any);
+                toast({ title: 'Documento atualizado' });
+                setEditLibDoc(null);
+              } catch(e:any){ toast({ title:'Erro', description: e.message, variant:'destructive' }); }
+            }}>{updateLibraryDocMut.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null} Salvar alterações</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Editar categoria */}
+      <Dialog open={!!editCat} onOpenChange={(o) => !o && setEditCat(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader><DialogTitle className="flex items-center gap-2"><FolderOpen className="h-5 w-5" /> Editar categoria</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            <div className="grid grid-cols-5 gap-2">
+              <div className="col-span-4 space-y-1"><Label>Nome da categoria</Label><Input value={editCatForm.name} onChange={e=>setEditCatForm(f=>({...f, name: e.target.value}))} /></div>
+              <div className="space-y-1"><Label>Cor</Label><Input type="color" value={editCatForm.color} onChange={e=>setEditCatForm(f=>({...f, color: e.target.value}))} className="h-9 p-1" /></div>
+            </div>
+            <Button className="w-full" disabled={updateCategory.isPending || !editCatForm.name} onClick={async ()=>{
+              try {
+                await updateCategory.mutateAsync({ id: editCat.id, data: { name: editCatForm.name, color: editCatForm.color } });
+                toast({ title: 'Categoria atualizada' });
+                setEditCat(null);
+              } catch(e:any){ toast({ title:'Erro', description: e.message, variant:'destructive' }); }
+            }}>{updateCategory.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null} Salvar</Button>
           </div>
         </DialogContent>
       </Dialog>
