@@ -279,7 +279,7 @@ export default function RHDocumentos() {
               </div>
               <div className="flex items-center gap-2">
                 <Button variant="outline" size="sm" onClick={() => setShowNewCategory(true)}><FolderOpen className="h-4 w-4 mr-2" /> Gerenciar categorias</Button>
-                <Button size="sm" onClick={() => setShowNewLibraryDoc(true)}><Plus className="h-4 w-4 mr-2" /> Novo documento oficial</Button>
+                <Button size="sm" onClick={() => setShowNewLibraryDoc(true)}><Plus className="h-4 w-4 mr-2" /> Novo documento</Button>
               </div>
             </div>
             <Card>
@@ -324,7 +324,7 @@ export default function RHDocumentos() {
                       </TableCell>
                     </TableRow>
                   ))}
-                  {(libraryDocs || []).length === 0 && <TableRow><TableCell colSpan={7} className="text-center text-muted-foreground py-8">Nenhum documento no acervo. Crie o primeiro POP/procedimento.</TableCell></TableRow>}
+                  {(libraryDocs || []).length === 0 && <TableRow><TableCell colSpan={7} className="text-center text-muted-foreground py-8">Nenhum documento no acervo. Crie o primeiro documento.</TableCell></TableRow>}
                 </TableBody>
               </Table>
             </Card>
