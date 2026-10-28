@@ -61,6 +61,8 @@ export default function RHDocumentos() {
   const createCategory = useCreateDocumentCategory();
   const updateCategory = useUpdateDocumentCategory();
   const deleteCategory = useDeleteDocumentCategory();
+  const updateLibraryById = useUpdateDocumentLibraryById();
+  const deleteLibraryById = useDeleteDocumentLibraryById();
 
   const [editLibDoc, setEditLibDoc] = useState<any>(null);
   const [editLibForm, setEditLibForm] = useState({ title: '', code: '', category_id: '', summary: '', tags: '', is_mandatory: false, status: 'rascunho' });
@@ -329,13 +331,12 @@ export default function RHDocumentos() {
                         <Button variant="ghost" size="sm" onClick={() => { setSelectedLibraryDoc(d); setNewVersionForm({ file_url: '', change_reason: '' }); setShowNewVersion(true); }}><History className="h-4 w-4 mr-1" /> Nova versão</Button>
                         <Button variant="ghost" size="sm" onClick={() => { setSelectedLibraryDoc(d); setLibSendForm({ employee_ids: [], sendToAll: false, requires_confirmation: true, requires_signature: false, description: '' }); setShowLibrarySend(true); }} disabled={d.status !== 'ativo'}><Send className="h-4 w-4 mr-1" /> Enviar</Button>
                         <Button variant="ghost" size="sm" onClick={() => { setEditLibDoc(d); setEditLibForm({ title: d.title || '', code: d.code || '', category_id: d.category_id || '', summary: d.summary || '', tags: Array.isArray(d.tags) ? d.tags.join(', ') : '', is_mandatory: !!d.is_mandatory, status: d.status || 'rascunho' }); }}>Editar</Button>
-                        {d.status === 'rascunho' && <Button variant="ghost" size="sm" onClick={async () => { try { const u = useUpdateDocumentLibraryById(); await u.mutateAsync({ id: d.id, data: { status: 'ativo' } }); toast({ title: 'Documento publicado como ativo' }); } catch(e:any){ toast({ title: 'Erro', description: e.message, variant: 'destructive' }); } }}><CheckCircle2 className="h-4 w-4 mr-1" /> Publicar</Button>}
-                        {d.status === 'ativo' && <Button variant="ghost" size="sm" onClick={async () => { try { const u = useUpdateDocumentLibraryById(); await u.mutateAsync({ id: d.id, data: { status: 'arquivado' } }); toast({ title: 'Documento arquivado' }); } catch(e:any){ toast({ title: 'Erro', description: e.message, variant: 'destructive' }); } }}><Archive className="h-4 w-4 mr-1" /> Arquivar</Button>}
+                        {d.status === 'rascunho' && <Button variant="ghost" size="sm" onClick={async () => { try { await updateLibraryById.mutateAsync({ id: d.id, data: { status: 'ativo' } }); toast({ title: 'Documento publicado como ativo' }); } catch(e:any){ toast({ title: 'Erro', description: e.message, variant: 'destructive' }); } }}><CheckCircle2 className="h-4 w-4 mr-1" /> Publicar</Button>}
+                        {d.status === 'ativo' && <Button variant="ghost" size="sm" onClick={async () => { try { await updateLibraryById.mutateAsync({ id: d.id, data: { status: 'arquivado' } }); toast({ title: 'Documento arquivado' }); } catch(e:any){ toast({ title: 'Erro', description: e.message, variant: 'destructive' }); } }}><Archive className="h-4 w-4 mr-1" /> Arquivar</Button>}
                         <Button variant="ghost" size="sm" className="text-destructive" onClick={async () => {
                           if (!confirm('Excluir este documento e todas as suas versões?')) return;
                           try {
-                            const del = useDeleteDocumentLibraryById();
-                            await del.mutateAsync(d.id);
+                            await deleteLibraryById.mutateAsync(d.id);
                             toast({ title: 'Documento excluído' });
                           } catch(e:any){ toast({ title: 'Erro', description: e.message, variant: 'destructive' }); }
                         }}>Excluir</Button>
