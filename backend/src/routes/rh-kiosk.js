@@ -83,8 +83,13 @@ router.get('/face-debug', async (req, res) => {
   }
 });
 
-// A partir daqui só rotas de operação do quiosque.
+// Rotas públicas para operação do quiosque (permitem uso em modo quiosque ou com sessão autenticada)
+// /lookup, /enrollments, /next-punch podem ser usados para identificação no totem
 router.use((req, res, next) => {
+  const p = req.path || '';
+  if (p.startsWith('/lookup') || p.startsWith('/enrollments') || p.startsWith('/next-punch')) {
+    return next();
+  }
   if (req.user?.timeclock_kiosk === true || req.user?.account_type === 'timeclock_kiosk') return next();
   return res.status(403).json({ error: 'Acesso restrito ao modo quiosque de ponto' });
 });

@@ -932,7 +932,7 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
                 Informe os últimos {MATRICULA_DIGITS} dígitos do seu número de registro.
               </p>
               <div className="mb-4">
-                <div className="text-center text-4xl font-mono tracking-[0.3em] bg-white/5 border border-white/10 rounded-xl py-4 mb-4 min-h-[4.5rem] flex items-center justify-center">
+                <div className="text-center text-4xl font-mono tracking-[0.3em] bg-black border border-orange-500/60 text-orange-400 rounded-xl py-4 mb-4 min-h-[4.5rem] flex items-center justify-center">
                   {matricula.padEnd(MATRICULA_DIGITS, "•")}
                 </div>
                 {lookupError && (
