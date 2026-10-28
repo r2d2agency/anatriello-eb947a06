@@ -71,7 +71,7 @@ export default function RHDocumentos() {
   const [editCat, setEditCat] = useState<any>(null);
   const [editCatForm, setEditCatForm] = useState({ name: '', color: '#6366f1' });
   const addVersion = useAddDocumentVersion("");
-  const sendLibraryDoc = useSendDocumentLibrary('');
+  const sendLibraryDoc = useSendDocumentLibrary();
   const updateLibraryDoc = useUpdateDocumentLibrary("");
   const [showNewLibraryDoc, setShowNewLibraryDoc] = useState(false);
   const [showNewVersion, setShowNewVersion] = useState(false);
