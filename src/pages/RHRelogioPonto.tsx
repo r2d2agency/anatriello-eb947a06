@@ -205,6 +205,16 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
     return window.innerWidth > window.innerHeight ? "landscape" : "portrait";
   });
   const [isOnline, setIsOnline] = useState(typeof navigator !== "undefined" ? navigator.onLine : true);
+  const [cameraRotation, setCameraRotation] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem("kiosk_camera_rotation");
+      const n = saved ? parseInt(saved) : 0;
+      return [0, 90, 180, 270].includes(n) ? n : 0;
+    } catch {
+      return 0;
+    }
+  });
+  const [showCameraAdjust, setShowCameraAdjust] = useState(false);
   // Estado da digitação da matrícula. `lookupResults` guarda a busca anterior
   // para poder voltar sem digitar de novo; `lookupError` segura a mensagem de
   // "nenhum colaborador" enquanto o colaborador corrige os dígitos.
@@ -1067,7 +1077,7 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
                   70vh reduzia a área de leitura justamente onde o rosto podia
                   estar. object-cover preenche o contêiner sem cortar o centro. */}
               <div className="relative flex-1 bg-black min-h-0">
-                <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover scale-x-[-1]" />
+                <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover" style={{ transform: `scaleX(-1) rotate(${cameraRotation}deg)` }} />
                 {/* Moldura guia — ocupa a maior parte da altura, cabe um rosto inteiro */}
                 <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
                   <div className="h-[78%] aspect-[3/4] max-w-[70%] border-4 border-primary/70 rounded-[45%] shadow-[0_0_50px_rgba(59,130,246,0.45)]" />
@@ -1091,7 +1101,20 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
                 </div>
               </div>
             </Card>
-            <div className="flex justify-center mt-6">
+            <div className="flex justify-center gap-3 mt-6">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  const next = (cameraRotation + 90) % 360;
+                  setCameraRotation(next);
+                  try {
+                    localStorage.setItem("kiosk_camera_rotation", String(next));
+                  } catch {}
+                }}
+                className="bg-white/5 border-white/20 text-white hover:bg-white/10"
+              >
+                Ajustar câmera ({cameraRotation}°)
+              </Button>
               <Button variant="outline" onClick={cancel} className="bg-white/5 border-white/20 text-white hover:bg-white/10">
                 <ArrowLeft className="h-4 w-4 mr-2" /> Cancelar
               </Button>
