@@ -6,6 +6,8 @@ import { Camera, CheckCircle2, Clock, Loader2, ScanFace, XCircle, ArrowLeft, Log
 import { api } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { loadFaceModels, detectFace, detectFaceStable, captureVideoFrame, euclideanDistance, maxDistanceForScore, scoreFromDistance } from "@/lib/facial-recognition";
+import { loadEnrollmentsCache, saveEnrollmentsCache } from "@/lib/kiosk-cache";
+import { enqueuePunch, getQueuedPunches, removeQueuedPunch, incrementPunchAttempt } from "@/lib/kiosk-offline-queue";
 import { useNavigate } from "react-router-dom";
 
 interface Enrollment {
@@ -22,29 +24,7 @@ interface EnrollmentCache {
   savedAt: number;
 }
 
-const ENROLLMENT_CACHE_KEY = "kiosk_enrollment_cache";
-const ENROLLMENT_CACHE_TTL = 5 * 60 * 1000; // 5 minutos
-
-function loadCachedEnrollments(): EnrollmentCache | null {
-  try {
-    const raw = localStorage.getItem(ENROLLMENT_CACHE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as EnrollmentCache;
-    if (!parsed.items?.length) return null;
-    if (Date.now() - parsed.savedAt > ENROLLMENT_CACHE_TTL) return null;
-    return parsed;
-  } catch {
-    return null;
-  }
-}
-
-function saveEnrollmentsCache(data: EnrollmentCache) {
-  try {
-    localStorage.setItem(ENROLLMENT_CACHE_KEY, JSON.stringify(data));
-  } catch {
-    // localStorage cheio ou indisponível — segue sem cache
-  }
-}
+const ENROLLMENT_CACHE_TTL = 30 * 60 * 1000; // 30 minutos (offline-first)
 
 interface Matched {
   employee: Enrollment;
@@ -220,6 +200,11 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
   const [attemptCount, setAttemptCount] = useState(0);
   /** Diagnóstico exibido na tela de "não encontrado". */
   const [notFoundInfo, setNotFoundInfo] = useState<{ dbSize: number; bestDistance: number | null } | null>(null);
+  const [orientation, setOrientation] = useState<"portrait" | "landscape">(() => {
+    if (typeof window === "undefined") return "portrait";
+    return window.innerWidth > window.innerHeight ? "landscape" : "portrait";
+  });
+  const [isOnline, setIsOnline] = useState(typeof navigator !== "undefined" ? navigator.onLine : true);
   // Estado da digitação da matrícula. `lookupResults` guarda a busca anterior
   // para poder voltar sem digitar de novo; `lookupError` segura a mensagem de
   // "nenhum colaborador" enquanto o colaborador corrige os dígitos.
@@ -270,6 +255,33 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
 
   useEffect(() => () => releaseStream(), [releaseStream]);
 
+  // Detecta orientação do tablet
+  useEffect(() => {
+    const update = () => {
+      if (typeof window === "undefined") return;
+      setOrientation(window.innerWidth > window.innerHeight ? "landscape" : "portrait");
+    };
+    update();
+    window.addEventListener("resize", update);
+    window.addEventListener("orientationchange", update);
+    return () => {
+      window.removeEventListener("resize", update);
+      window.removeEventListener("orientationchange", update);
+    };
+  }, []);
+
+  // Monitora online/offline
+  useEffect(() => {
+    const on = () => setIsOnline(true);
+    const off = () => setIsOnline(false);
+    window.addEventListener("online", on);
+    window.addEventListener("offline", off);
+    return () => {
+      window.removeEventListener("online", on);
+      window.removeEventListener("offline", off);
+    };
+  }, []);
+
   // Aquece a câmera uma única vez no quiosque (pede permissão só na abertura da tela)
   useEffect(() => {
     if (!kiosk) return;
@@ -277,8 +289,14 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
     (async () => {
       try {
         if (!navigator.mediaDevices?.getUserMedia) return;
+        const isLandscape = orientation === "landscape";
+        const videoConstraints: MediaTrackConstraints = {
+          facingMode: "user",
+          width: { ideal: isLandscape ? 1280 : 720 },
+          height: { ideal: isLandscape ? 720 : 1280 },
+        };
         const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } },
+          video: videoConstraints,
           audio: false,
         });
         if (cancelled) {
@@ -288,13 +306,21 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
         streamRef.current = stream;
         setCamWarning(null);
       } catch {
-        setCamWarning(
-          "Permita o acesso à câmera e escolha a opção de lembrar/permitir sempre neste site para não pedir a cada ponto."
-        );
+        // Fallback para constraints genéricos
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" }, audio: false });
+          if (cancelled) { stream.getTracks().forEach((t) => t.stop()); return; }
+          streamRef.current = stream;
+          setCamWarning(null);
+        } catch {
+          setCamWarning(
+            "Permita o acesso à câmera e escolha a opção de lembrar/permitir sempre neste site para não pedir a cada ponto."
+          );
+        }
       }
     })();
     return () => { cancelled = true; };
-  }, [kiosk]);
+  }, [kiosk, orientation]);
 
   // Avisa quando a permissão não está persistida (fica em "perguntar")
   useEffect(() => {
@@ -316,10 +342,8 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
   }, []);
 
   const loadEnrollments = useCallback(async () => {
-    // Tenta o cache primeiro: se a lista de colaboradores não mudou nos
-    // últimos 5 minutos, não precisa baixar de novo. Isso elimina a espera
-    // de rede em cada batida — o tablet muitas vezes está em WiFi fraco.
-    const cached = loadCachedEnrollments();
+    // Offline-first: consulta base local (IndexedDB) ANTES de ir à rede
+    const cached = await loadEnrollmentsCache(ENROLLMENT_CACHE_TTL);
     if (cached) {
       setEnrollments(cached.items);
       const configured = Number(cached.min_confidence);
@@ -340,17 +364,28 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
       return cached.items;
     }
 
-    const res = await api<{ items: Enrollment[]; min_confidence?: number }>(`/api/rh/kiosk/enrollments`);
-    setEnrollments(res.items || []);
-    // 1:N exige mais rigidez que a sensibilidade do app (1:1). O admin pode
-    // deixar o limiar mais alto, nunca mais frouxo que o padrão do quiosque.
-    const configured = Number(res.min_confidence);
-    const effective = Number.isFinite(configured)
-      ? Math.max(KIOSK_MATCH_THRESHOLD, configured)
-      : KIOSK_MATCH_THRESHOLD;
-    setMinConfidence(effective);
-    saveEnrollmentsCache({ items: res.items || [], min_confidence: res.min_confidence, savedAt: Date.now() });
-    return res.items || [];
+    try {
+      const res = await api<{ items: Enrollment[]; min_confidence?: number }>(`/api/rh/kiosk/enrollments`);
+      setEnrollments(res.items || []);
+      const configured = Number(res.min_confidence);
+      const effective = Number.isFinite(configured)
+        ? Math.max(KIOSK_MATCH_THRESHOLD, configured)
+        : KIOSK_MATCH_THRESHOLD;
+      setMinConfidence(effective);
+      saveEnrollmentsCache({ items: res.items || [], min_confidence: res.min_confidence, savedAt: Date.now() });
+      return res.items || [];
+    } catch {
+      // Fallback: tenta cache mesmo expirado ou vazio
+      const stale = await loadEnrollmentsCache(Number.MAX_SAFE_INTEGER);
+      if (stale?.items?.length) {
+        setEnrollments(stale.items);
+        const configured = Number(stale.min_confidence);
+        const effective = Number.isFinite(configured) ? Math.max(KIOSK_MATCH_THRESHOLD, configured) : KIOSK_MATCH_THRESHOLD;
+        setMinConfidence(effective);
+        return stale.items;
+      }
+      throw new Error("Não foi possível carregar lista de colaboradores offline/online");
+    }
   }, []);
 
   const runDetection = useCallback(async (items: Enrollment[], threshold: number) => {
@@ -525,6 +560,47 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
     }
   }, [enrollments, loadEnrollments, minConfidence, runDetection, toast]);
 
+  const syncOfflineQueue = useCallback(async () => {
+    try {
+      const queue = await getQueuedPunches();
+      if (!queue.length) return;
+      for (const item of queue) {
+        try {
+          const r = await api<any>(`/api/rh/kiosk/punch`, {
+            method: "POST",
+            body: {
+              punch_type: item.punch_type,
+              latitude: item.latitude ?? null,
+              longitude: item.longitude ?? null,
+              accuracy_meters: item.accuracy_meters ?? null,
+              selfie_url: item.selfie_url ?? null,
+              employee_id: item.employee_id,
+              face_descriptor: item.face_descriptor ?? null,
+              client_distance: item.client_distance ?? null,
+              client_score: item.client_score ?? null,
+              offline_sync: true,
+            },
+          });
+          await removeQueuedPunch(item.id);
+          toast({
+            title: "Ponto sincronizado",
+            description: `${r.employee_name || ""} - ${PUNCH_LABELS[r.punch_type] || r.punch_type}`.trim(),
+          });
+        } catch {
+          await incrementPunchAttempt(item.id);
+          break; // tenta novamente depois
+        }
+      }
+    } catch {}
+  }, [toast]);
+
+  useEffect(() => {
+    syncOfflineQueue();
+    const onOnline = () => syncOfflineQueue();
+    window.addEventListener("online", onOnline);
+    return () => window.removeEventListener("online", onOnline);
+  }, [syncOfflineQueue]);
+
   const confirmPunch = useCallback(async () => {
     if (!matched) return;
     setPhase("confirming");
@@ -541,6 +617,29 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
           );
         });
       } catch {}
+
+      if (typeof navigator !== "undefined" && navigator.onLine === false) {
+        await enqueuePunch({
+          employee_id: matched.employee.id,
+          punch_type: nextPunch,
+          selfie_url: matched.selfie,
+          face_descriptor: matched.descriptor,
+          client_distance: matched.distance,
+          client_score: matched.score,
+          latitude: coords?.latitude ?? null,
+          longitude: coords?.longitude ?? null,
+          accuracy_meters: coords?.accuracy ?? null,
+        });
+        setConfirmation({
+          name: matched.employee.full_name,
+          type: PUNCH_LABELS[nextPunch] || nextPunch,
+          time: new Date().toLocaleTimeString("pt-BR", { timeZone: "America/Sao_Paulo", hour: "2-digit", minute: "2-digit" }),
+        });
+        setPhase("success");
+        toast({ title: "Ponto registrado offline", description: "Será enviado automaticamente quando a conexão voltar." });
+        setTimeout(() => setPhase("idle"), 4000);
+        return;
+      }
 
       const r = await api<any>(`/api/rh/kiosk/punch`, {
         method: "POST",
@@ -570,6 +669,39 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
       setPhase("success");
       setTimeout(() => setPhase("idle"), 5000);
     } catch (err: any) {
+      // Tenta enfileirar se for erro de rede
+      const isNetwork = !err?.response && (err?.message?.includes("Network") || err?.message?.includes("Failed") || err?.code === "ECONNABORTED");
+      if (isNetwork && matched) {
+        try {
+          let coords: GeolocationCoordinates | null = null;
+          try {
+            coords = await new Promise((resolve) => {
+              if (!navigator.geolocation) return resolve(null);
+              navigator.geolocation.getCurrentPosition((p) => resolve(p.coords), () => resolve(null), { timeout: 2000 });
+            });
+          } catch {}
+          await enqueuePunch({
+            employee_id: matched.employee.id,
+            punch_type: nextPunch,
+            selfie_url: matched.selfie,
+            face_descriptor: matched.descriptor,
+            client_distance: matched.distance,
+            client_score: matched.score,
+            latitude: coords?.latitude ?? null,
+            longitude: coords?.longitude ?? null,
+            accuracy_meters: coords?.accuracy ?? null,
+          });
+          setConfirmation({
+            name: matched.employee.full_name,
+            type: PUNCH_LABELS[nextPunch] || nextPunch,
+            time: new Date().toLocaleTimeString("pt-BR", { timeZone: "America/Sao_Paulo", hour: "2-digit", minute: "2-digit" }),
+          });
+          setPhase("success");
+          toast({ title: "Ponto registrado offline", description: "Será enviado automaticamente quando a conexão voltar." });
+          setTimeout(() => setPhase("idle"), 4000);
+          return;
+        } catch {}
+      }
       // O servidor responde 403 com score/limiar/distância calculada. Mostrar
       // esses números é a diferença entre "o sistema se contradiz" e um
       // diagnóstico real — o quiosque não tem console para consultá-los.
