@@ -318,7 +318,7 @@ router.patch('/:id', async (req, res) => {
     res.json(r.rows[0]);
   } catch (err) {
     console.error('document-library.patch', err);
-    res.status(500).json({ error: 'Erro ao atualizar documento' });
+    res.status(500).json({ error: 'Erro ao atualizar documento', detail: err.message });
   }
 });
 
