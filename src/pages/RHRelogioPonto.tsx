@@ -1101,27 +1101,27 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
 
         {phase === "matched" && matched && (
           <div className="w-full max-w-lg">
-            <Card className="bg-white/5 backdrop-blur border-white/10 p-8 text-center">
+            <Card className="bg-black/90 backdrop-blur border-orange-500/60 p-8 text-center">
               <div className="flex justify-center mb-6">
-                <Avatar className="h-32 w-32 border-4 border-primary shadow-2xl">
+                <Avatar className="h-32 w-32 border-4 border-orange-400 shadow-2xl">
                   <AvatarImage src={matched.selfie || matched.employee.photo_url || undefined} />
-                  <AvatarFallback className="text-3xl bg-primary/20">
+                  <AvatarFallback className="text-3xl bg-orange-500/20 text-orange-300">
                     {matched.employee.full_name.split(" ").map((n) => n[0]).slice(0, 2).join("")}
                   </AvatarFallback>
                 </Avatar>
               </div>
-              <p className="text-sm uppercase tracking-widest text-white/60 mb-1">Olá</p>
-              <h2 className="text-3xl font-bold mb-2">{matched.employee.full_name}</h2>
-              <p className="text-white/70 mb-6">
-                Confiança: <span className="font-semibold text-primary">{matched.score}%</span>
-                <span className="text-white/40 ml-2 text-sm">
+              <p className="text-sm uppercase tracking-widest text-white/70 mb-1">Olá</p>
+              <h2 className="text-3xl font-bold mb-2 text-orange-400">{matched.employee.full_name}</h2>
+              <p className="text-white mb-6">
+                Confiança: <span className="font-semibold text-orange-400">{matched.score}%</span>
+                <span className="text-white/60 ml-2 text-sm">
                   (distância {matched.distance.toFixed(3)})
                 </span>
               </p>
 
-              <div className="bg-primary/10 border border-primary/30 rounded-2xl p-6 mb-6">
-                <p className="text-sm text-white/70 mb-1">Próxima batida</p>
-                <p className="text-3xl font-bold text-primary">{PUNCH_LABELS[nextPunch] || nextPunch}</p>
+              <div className="bg-orange-500/10 border border-orange-500/40 rounded-2xl p-6 mb-6">
+                <p className="text-sm text-white/80 mb-1">Próxima batida</p>
+                <p className="text-3xl font-bold text-orange-400">{PUNCH_LABELS[nextPunch] || nextPunch}</p>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
@@ -1129,14 +1129,14 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
                   variant="outline"
                   size="lg"
                   onClick={cancel}
-                  className="h-16 text-lg bg-white/5 border-white/20 text-white hover:bg-white/10"
+                  className="h-16 text-lg bg-black border-white/40 text-white hover:bg-white/10"
                 >
                   <XCircle className="h-5 w-5 mr-2" /> Não sou eu
                 </Button>
                 <Button
                   size="lg"
                   onClick={confirmPunch}
-                  className="h-16 text-lg bg-emerald-600 hover:bg-emerald-700"
+                  className="h-16 text-lg bg-emerald-600 hover:bg-emerald-700 text-white"
                 >
                   <CheckCircle2 className="h-5 w-5 mr-2" /> Confirmar
                 </Button>
