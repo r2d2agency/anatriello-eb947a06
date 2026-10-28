@@ -14,7 +14,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { useToast } from "@/hooks/use-toast";
 import { useEmployees } from "@/hooks/use-rh";
 import { useDocumentDeliveries, useSendDocumentDelivery, useInboundDocumentsRH, useDocumentTypes, useSendNotice } from "@/hooks/use-promotor";
-import { useDocumentCategories, useDocumentLibrary, useCreateDocumentLibrary, useAddDocumentVersion, useSendDocumentLibrary, useCreateDocumentCategory, useUpdateDocumentLibrary, useDeleteDocumentLibrary, useUpdateDocumentCategory, useDeleteDocumentCategory } from "@/hooks/use-document-library";
+import { useDocumentCategories, useDocumentLibrary, useCreateDocumentLibrary, useAddDocumentVersion, useSendDocumentLibrary, useCreateDocumentCategory, useUpdateDocumentLibrary, useDeleteDocumentLibrary, useUpdateDocumentCategory, useDeleteDocumentCategory, useUpdateDocumentLibraryById, useDeleteDocumentLibraryById } from "@/hooks/use-document-library";
 import { FileUploadInput } from "@/components/ui/file-upload-input";
 import { FileText, Send, Search, Megaphone, Loader2, Users, Plus, LibraryBig, History, Tag, FolderOpen, Upload, RefreshCw, Archive, CheckCircle2 } from "lucide-react";
 import { format } from "date-fns";
@@ -329,13 +329,13 @@ export default function RHDocumentos() {
                         <Button variant="ghost" size="sm" onClick={() => { setSelectedLibraryDoc(d); setNewVersionForm({ file_url: '', change_reason: '' }); setShowNewVersion(true); }}><History className="h-4 w-4 mr-1" /> Nova versão</Button>
                         <Button variant="ghost" size="sm" onClick={() => { setSelectedLibraryDoc(d); setLibSendForm({ employee_ids: [], sendToAll: false, requires_confirmation: true, requires_signature: false, description: '' }); setShowLibrarySend(true); }} disabled={d.status !== 'ativo'}><Send className="h-4 w-4 mr-1" /> Enviar</Button>
                         <Button variant="ghost" size="sm" onClick={() => { setEditLibDoc(d); setEditLibForm({ title: d.title || '', code: d.code || '', category_id: d.category_id || '', summary: d.summary || '', tags: Array.isArray(d.tags) ? d.tags.join(', ') : '', is_mandatory: !!d.is_mandatory, status: d.status || 'rascunho' }); }}>Editar</Button>
-                        {d.status === 'rascunho' && <Button variant="ghost" size="sm" onClick={async () => { try { const u = useUpdateDocumentLibrary(d.id); await u.mutateAsync({ status: 'ativo' } as any); toast({ title: 'Documento publicado como ativo' }); } catch(e:any){ toast({ title: 'Erro', description: e.message, variant: 'destructive' }); } }}><CheckCircle2 className="h-4 w-4 mr-1" /> Publicar</Button>}
-                        {d.status === 'ativo' && <Button variant="ghost" size="sm" onClick={async () => { try { const u = useUpdateDocumentLibrary(d.id); await u.mutateAsync({ status: 'arquivado' } as any); toast({ title: 'Documento arquivado' }); } catch(e:any){ toast({ title: 'Erro', description: e.message, variant: 'destructive' }); } }}><Archive className="h-4 w-4 mr-1" /> Arquivar</Button>}
+                        {d.status === 'rascunho' && <Button variant="ghost" size="sm" onClick={async () => { try { const u = useUpdateDocumentLibraryById(); await u.mutateAsync({ id: d.id, data: { status: 'ativo' } }); toast({ title: 'Documento publicado como ativo' }); } catch(e:any){ toast({ title: 'Erro', description: e.message, variant: 'destructive' }); } }}><CheckCircle2 className="h-4 w-4 mr-1" /> Publicar</Button>}
+                        {d.status === 'ativo' && <Button variant="ghost" size="sm" onClick={async () => { try { const u = useUpdateDocumentLibraryById(); await u.mutateAsync({ id: d.id, data: { status: 'arquivado' } }); toast({ title: 'Documento arquivado' }); } catch(e:any){ toast({ title: 'Erro', description: e.message, variant: 'destructive' }); } }}><Archive className="h-4 w-4 mr-1" /> Arquivar</Button>}
                         <Button variant="ghost" size="sm" className="text-destructive" onClick={async () => {
                           if (!confirm('Excluir este documento e todas as suas versões?')) return;
                           try {
-                            const del = useDeleteDocumentLibrary(d.id);
-                            await del.mutateAsync();
+                            const del = useDeleteDocumentLibraryById();
+                            await del.mutateAsync(d.id);
                             toast({ title: 'Documento excluído' });
                           } catch(e:any){ toast({ title: 'Erro', description: e.message, variant: 'destructive' }); }
                         }}>Excluir</Button>

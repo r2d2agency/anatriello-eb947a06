@@ -159,3 +159,23 @@ export const useDeleteDocumentCategory = () => {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["document-categories"] }),
   });
 };
+
+export const useUpdateDocumentLibraryById = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: any }) => api(`/api/rh/document-library/${id}`, { method: "PATCH", body: data }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["document-library"] });
+    },
+  });
+};
+
+export const useDeleteDocumentLibraryById = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api(`/api/rh/document-library/${id}`, { method: "DELETE" }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["document-library"] });
+    },
+  });
+};
