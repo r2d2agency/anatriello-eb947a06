@@ -1026,17 +1026,17 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
                       }
                       void startVerify(emp);
                     }}
-                    className="w-full flex items-center gap-4 p-4 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 hover:border-primary/50 transition-colors text-left"
+                    className="w-full flex items-center gap-4 p-4 rounded-xl bg-black border border-orange-500/60 hover:bg-orange-500/10 hover:border-orange-400 transition-colors text-left"
                   >
                     <Avatar className="h-12 w-12">
                       {emp.photo_url && <AvatarImage src={emp.photo_url} alt={emp.full_name} />}
-                      <AvatarFallback className="text-lg font-bold">
+                      <AvatarFallback className="text-lg font-bold bg-orange-500/20 text-orange-300">
                         {emp.full_name.split(" ").map((n) => n[0]).slice(0, 2).join("").toUpperCase()}
                       </AvatarFallback>
                     </Avatar>
                     <div className="flex-1 min-w-0">
-                      <p className="font-semibold text-lg truncate">{emp.full_name}</p>
-                      <p className="text-sm text-white/50">Matrícula: {emp.registration_number}</p>
+                      <p className="font-semibold text-lg truncate text-orange-400">{emp.full_name}</p>
+                      <p className="text-sm text-white/80">Matrícula: {emp.registration_number}</p>
                     </div>
                     {emp.has_face ? (
                       <BadgeCheck className="h-6 w-6 text-green-400 shrink-0" />
