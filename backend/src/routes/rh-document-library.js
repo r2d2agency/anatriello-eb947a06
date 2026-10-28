@@ -292,7 +292,7 @@ router.patch('/:id', async (req, res) => {
     const r = await query(
       `UPDATE rh_document_library SET
          title = COALESCE($1,title),
-         code = CASE WHEN $2 IS NULL THEN code ELSE $2 END,
+         code = CASE WHEN $2::text IS NULL THEN code ELSE $2 END,
          category_id = CASE WHEN $10 THEN NULL ELSE COALESCE($3, category_id) END,
          summary = CASE WHEN $4 IS NULL THEN summary ELSE $4 END,
          tags = CASE WHEN $5 IS NULL THEN tags ELSE $5 END,
