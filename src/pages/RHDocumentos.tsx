@@ -71,7 +71,7 @@ export default function RHDocumentos() {
   const [editCat, setEditCat] = useState<any>(null);
   const [editCatForm, setEditCatForm] = useState({ name: '', color: '#6366f1' });
   const addVersion = useAddDocumentVersion("");
-  const sendLibraryDoc = useSendDocumentLibrary(selectedLibraryDoc?.id || '');
+  const sendLibraryDoc = useSendDocumentLibrary('');
   const updateLibraryDoc = useUpdateDocumentLibrary("");
   const [showNewLibraryDoc, setShowNewLibraryDoc] = useState(false);
   const [showNewVersion, setShowNewVersion] = useState(false);
@@ -576,7 +576,7 @@ export default function RHDocumentos() {
               const ids = libSendForm.sendToAll ? activeEmployees.map((e:any)=>e.id) : libSendForm.employee_ids;
               if(ids.length === 0){ toast({ title:'Selecione ao menos um colaborador', variant:'destructive'}); return; }
               try {
-                await sendLibraryDoc.mutateAsync({ employee_ids: ids, sendToAll: libSendForm.sendToAll, requires_confirmation: libSendForm.requires_confirmation, requires_signature: libSendForm.requires_signature, description: libSendForm.description } as any);
+                await sendLibraryDoc.mutateAsync({ id: selectedLibraryDoc.id, data: { employee_ids: ids, sendToAll: libSendForm.sendToAll, requires_confirmation: libSendForm.requires_confirmation, requires_signature: libSendForm.requires_signature, description: libSendForm.description } } as any);
                 toast({ title: `Documento enviado para ${ids.length} colaborador(es)` });
                 setShowLibrarySend(false);
                 setLibSendForm({ employee_ids:[], sendToAll:false, requires_confirmation:true, requires_signature:false, description:'' });

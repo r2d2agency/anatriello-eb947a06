@@ -124,13 +124,11 @@ export const useUpdateDocumentLibrary = (id: string) => {
   });
 };
 
-export const useSendDocumentLibrary = (id: string) => {
+export const useSendDocumentLibrary = () => {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (data: any) => api(`/api/rh/document-library/${id}/send`, { method: "POST", body: data }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["document-deliveries"] });
-    },
+    mutationFn: ({ id, data }: { id: string; data: any }) => api(`/api/rh/document-library/${id}/send`, { method: "POST", body: data }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["document-deliveries"] }),
   });
 };
 
