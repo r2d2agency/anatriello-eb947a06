@@ -300,7 +300,7 @@ router.patch('/:id', async (req, res) => {
          is_mandatory = COALESCE($7,is_mandatory),
          updated_at = NOW(),
          last_updated_at = NOW()
-       WHERE id = $8 AND organization_id = $10 RETURNING *`,
+       WHERE id = $8 AND organization_id = $9 RETURNING *`,
       [
         title !== undefined ? title : null,
         code !== undefined ? (code === '' ? null : code) : null,
@@ -310,7 +310,6 @@ router.patch('/:id', async (req, res) => {
         status || null,
         typeof is_mandatory === 'boolean' ? is_mandatory : null,
         req.params.id,
-        setCatNull,
         orgId,
         setCatNull
       ]
