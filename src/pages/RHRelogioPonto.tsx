@@ -1102,19 +1102,7 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
               </div>
             </Card>
             <div className="flex justify-center gap-3 mt-6 flex-wrap">
-              <Button
-                variant="outline"
-                onClick={() => {
-                  const next = (cameraRotation + 90) % 360;
-                  setCameraRotation(next);
-                  try {
-                    localStorage.setItem("kiosk_camera_rotation", String(next));
-                  } catch {}
-                }}
-                className="bg-white/5 border-white/20 text-white hover:bg-white/10"
-              >
-                <Settings className="h-4 w-4 mr-2" /> Rotação ({cameraRotation}°)
-              </Button>
+              {/* botão de engrenagem movido para o rodapé fixo abaixo */}
               <Button variant="outline" onClick={cancel} className="bg-white/5 border-white/20 text-white hover:bg-white/10">
                 <ArrowLeft className="h-4 w-4 mr-2" /> Cancelar
               </Button>
@@ -1246,8 +1234,20 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
         )}
       </div>
 
-      <div className="border-t border-white/10 py-3 text-center text-xs text-white/40">
-        Fuso America/Sao_Paulo · Ponto validado por biometria facial · Anatriello
+      <div className="border-t border-white/10 py-3 text-center text-xs text-white/40 flex items-center justify-between px-4">
+        <button
+          onClick={() => {
+            const next = (cameraRotation + 90) % 360;
+            setCameraRotation(next);
+            try { localStorage.setItem("kiosk_camera_rotation", String(next)); } catch {}
+          }}
+          className="flex items-center gap-1.5 text-white/60 hover:text-white transition-colors"
+          aria-label="Ajustar rotação da câmera"
+        >
+          <Settings className="h-4 w-4" />
+          <span>{cameraRotation}°</span>
+        </button>
+        <span>Fuso America/Sao_Paulo · Ponto validado por biometria facial · Anatriello</span>
       </div>
     </div>
   );
