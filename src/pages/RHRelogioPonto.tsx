@@ -1076,7 +1076,7 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
               {/* Sem max-h: o vídeo ocupa a tela inteira do tablet. Limitar a
                   70vh reduzia a área de leitura justamente onde o rosto podia
                   estar. object-cover preenche o contêiner sem cortar o centro. */}
-              <div className="relative bg-black min-h-0 max-h-[45vh] w-full max-w-2xl aspect-[4/3] mx-auto">
+              <div className="relative bg-black min-h-0 max-h-[35vh] w-full max-w-xl aspect-[4/3] mx-auto">
                 <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-contain" style={{ transform: `scaleX(-1) rotate(${cameraRotation}deg)` }} />
                 {/* Moldura guia — ocupa a maior parte da altura, cabe um rosto inteiro */}
                 <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
