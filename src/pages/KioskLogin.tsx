@@ -52,21 +52,21 @@ export default function KioskLogin() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-white flex items-center justify-center p-6">
-      <Card className="w-full max-w-md bg-white/5 backdrop-blur border-white/10 p-8">
-        <div className="flex flex-col items-center mb-8">
-          <div className="h-16 w-16 rounded-2xl bg-primary/20 flex items-center justify-center mb-4">
-            <ScanFace className="h-9 w-9 text-primary" />
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-white flex items-center justify-center p-4">
+      <Card className="w-full max-w-sm bg-white/5 backdrop-blur border-white/10 p-5">
+        <div className="flex flex-col items-center mb-4">
+          <div className="h-12 w-12 rounded-xl bg-primary/20 flex items-center justify-center mb-2">
+            <ScanFace className="h-7 w-7 text-primary" />
           </div>
-          <h1 className="text-2xl font-bold">Modo Quiosque</h1>
-          <p className="text-sm text-white/60 mt-1 flex items-center gap-1.5">
-            <Clock className="h-3.5 w-3.5" /> Relógio de Ponto — Tablet
+          <h1 className="text-xl font-bold">Modo Quiosque</h1>
+          <p className="text-xs text-white/60 mt-0.5 flex items-center gap-1.5">
+            <Clock className="h-3 w-3" /> Relógio de Ponto — Tablet
           </p>
         </div>
 
         <form onSubmit={submit} className="space-y-4">
           <div>
-            <Label htmlFor="email" className="text-white/80">E-mail do responsável</Label>
+            <Label htmlFor="email" className="text-white/80 text-sm">E-mail do responsável</Label>
             <Input
               id="email"
               type="email"
@@ -74,24 +74,24 @@ export default function KioskLogin() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="rh@empresa.com"
-              className="mt-1.5 bg-white/5 border-white/10 text-white h-12"
+              className="mt-1 bg-white/5 border-white/10 text-white h-10 text-sm"
               required
             />
           </div>
           <div>
-            <Label htmlFor="password" className="text-white/80">Senha</Label>
+            <Label htmlFor="password" className="text-white/80 text-sm">Senha</Label>
             <Input
               id="password"
               type="password"
               autoComplete="current-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="mt-1.5 bg-white/5 border-white/10 text-white h-12"
+              className="mt-1 bg-white/5 border-white/10 text-white h-10 text-sm"
               required
             />
           </div>
-          <Button type="submit" disabled={loading} className="w-full h-12 text-base font-semibold">
-            {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : "Ativar Quiosque"}
+          <Button type="submit" disabled={loading} className="w-full h-10 text-sm font-semibold">
+            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Ativar Quiosque"}
           </Button>
         </form>
 
