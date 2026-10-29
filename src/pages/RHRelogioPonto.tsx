@@ -406,6 +406,13 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
     setNotFoundInfo(null);
     let attempts = 0;
     let bestDistance: number | null = null;
+    console.log("[kiosk] runDetection start", { items: items.length, threshold });
+    // watchdog: força not_found se o loop travar silenciosamente
+    const watchdog = window.setTimeout(() => {
+      console.warn("[kiosk] watchdog: loop travado, forçando not_found");
+      setPhase("not_found");
+      stopCamera();
+    }, 20000);
 
     // setTimeout com delay curto: rAF pode sobrecarregar o CPU em tablets.
     // 50ms é suficiente para não bloquear a UI mas rápido o bastante para
