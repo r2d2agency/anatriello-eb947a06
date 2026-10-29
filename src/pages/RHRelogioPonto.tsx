@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Camera, CheckCircle2, Clock, Loader2, ScanFace, XCircle, ArrowLeft, LogOut, Delete, BadgeCheck } from "lucide-react";
+import { Camera, CheckCircle2, Clock, Loader2, ScanFace, XCircle, ArrowLeft, LogOut, Delete, BadgeCheck, Settings } from "lucide-react";
 import { api } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { loadFaceModels, detectFace, detectFaceStable, captureVideoFrame, euclideanDistance, maxDistanceForScore, scoreFromDistance } from "@/lib/facial-recognition";
@@ -1076,7 +1076,7 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
               {/* Sem max-h: o vídeo ocupa a tela inteira do tablet. Limitar a
                   70vh reduzia a área de leitura justamente onde o rosto podia
                   estar. object-cover preenche o contêiner sem cortar o centro. */}
-              <div className="relative flex-1 bg-black min-h-0">
+              <div className="relative bg-black min-h-0 max-h-[70vh] w-full aspect-[4/3] mx-auto">
                 <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover" style={{ transform: `scaleX(-1) rotate(${cameraRotation}deg)` }} />
                 {/* Moldura guia — ocupa a maior parte da altura, cabe um rosto inteiro */}
                 <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
@@ -1101,7 +1101,7 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
                 </div>
               </div>
             </Card>
-            <div className="flex justify-center gap-3 mt-6">
+            <div className="flex justify-center gap-3 mt-6 flex-wrap">
               <Button
                 variant="outline"
                 onClick={() => {
@@ -1113,7 +1113,7 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
                 }}
                 className="bg-white/5 border-white/20 text-white hover:bg-white/10"
               >
-                Ajustar câmera ({cameraRotation}°)
+                <Settings className="h-4 w-4 mr-2" /> Rotação ({cameraRotation}°)
               </Button>
               <Button variant="outline" onClick={cancel} className="bg-white/5 border-white/20 text-white hover:bg-white/10">
                 <ArrowLeft className="h-4 w-4 mr-2" /> Cancelar
