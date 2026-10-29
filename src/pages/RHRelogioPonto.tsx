@@ -868,7 +868,7 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
   return (
     <div className="fixed inset-0 bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-white overflow-hidden flex flex-col">
       {/* top bar */}
-      <div className="flex items-center justify-between px-6 py-4 border-b border-white/10">
+      <div className="flex items-center justify-between px-6 py-4 border-b border-white/10 shrink-0">
         <div className="flex items-center gap-3">
           <div className="h-10 w-10 rounded-lg bg-primary/20 flex items-center justify-center">
             <Clock className="h-5 w-5 text-primary" />
@@ -899,14 +899,14 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
               navigate("/rh/ponto");
             }
           }}
-          className="text-white/70 hover:text-white hover:bg-white/10"
+          className="text-white/70 hover:text-white hover:bg-white/10 shrink-0"
         >
           <LogOut className="h-4 w-4 mr-2" /> Sair
         </Button>
       </div>
 
       {/* content */}
-      <div className="flex-1 flex items-center justify-center p-6">
+      <div className="flex-1 min-h-0 overflow-y-auto flex items-center justify-center p-6">
         {phase === "idle" && (
           <div className="text-center max-w-lg">
             <div className="mb-8 flex justify-center">
