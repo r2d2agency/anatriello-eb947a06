@@ -647,7 +647,7 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
         });
         setPhase("success");
         toast({ title: "Ponto registrado offline", description: "Será enviado automaticamente quando a conexão voltar." });
-        setTimeout(() => setPhase("idle"), 4000);
+        setTimeout(() => setPhase("matricula"), 4000);
         return;
       }
 
@@ -677,7 +677,7 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
         time: new Date(r.punched_at).toLocaleTimeString("pt-BR", { timeZone: "America/Sao_Paulo", hour: "2-digit", minute: "2-digit" }),
       });
       setPhase("success");
-      setTimeout(() => setPhase("idle"), 5000);
+      setTimeout(() => setPhase("matricula"), 5000);
     } catch (err: any) {
       // Tenta enfileirar se for erro de rede
       const isNetwork = !err?.response && (err?.message?.includes("Network") || err?.message?.includes("Failed") || err?.code === "ECONNABORTED");
@@ -708,7 +708,7 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
           });
           setPhase("success");
           toast({ title: "Ponto registrado offline", description: "Será enviado automaticamente quando a conexão voltar." });
-          setTimeout(() => setPhase("idle"), 4000);
+          setTimeout(() => setPhase("matricula"), 4000);
           return;
         } catch {}
       }
