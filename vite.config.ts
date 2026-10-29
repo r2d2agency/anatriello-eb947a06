@@ -19,6 +19,9 @@ export default defineConfig(() => ({
       registerType: "autoUpdate",
       includeAssets: ["favicon.ico", "apple-touch-icon.png", "masked-icon.svg"],
       workbox: {
+        // Força limpeza de caches antigos ao publicar nova versão, evitando
+        // que o tablet continue executando bundle/CSS desatualizados.
+        cleanupOutdatedCaches: true,
         // 32 MB: cobre os modelos do face-api.js (SSD MobileNet + landmarks +
         // reconhecimento) caso entrem no precache, além dos assets do app.
         maximumFileSizeToCacheInBytes: 32 * 1024 * 1024,
