@@ -7,6 +7,9 @@ import { Label } from "@/components/ui/label";
 import { Card } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import { Clock, Loader2, ScanFace } from "lucide-react";
+import { loadFaceModels } from "@/lib/facial-recognition";
+import { loadEnrollmentsCache, saveEnrollmentsCache } from "@/lib/kiosk-cache";
+import { api } from "@/lib/api";
 
 export default function KioskLogin() {
   const { login } = useAuth();
@@ -33,6 +36,13 @@ export default function KioskLogin() {
         throw new Error("Esta conta não possui acesso ao modo quiosque");
       }
       localStorage.setItem("kiosk_mode", "1");
+      // Pré-carrega modelos de reconhecimento facial e base de enrollments
+      // em background para o kiosk abrir rápido na primeira batida.
+      try {
+        await loadFaceModels();
+        const res = await api<{ items: any[]; min_confidence?: number }>(`/api/rh/kiosk/enrollments`);
+        await saveEnrollmentsCache({ items: res.items || [], min_confidence: res.min_confidence, savedAt: Date.now() });
+      } catch {}
       navigate("/kiosk", { replace: true });
     } catch (err: any) {
       toast({ title: "Falha no login", description: err?.message || "Verifique as credenciais", variant: "destructive" });
