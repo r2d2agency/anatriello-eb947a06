@@ -1174,7 +1174,10 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
               <h2 className="text-3xl font-bold mb-2 text-emerald-300">Ponto registrado!</h2>
               <p className="text-xl mb-1">{confirmation.name}</p>
               <p className="text-white/70 mb-4">{confirmation.type} às <span className="font-mono font-semibold">{confirmation.time}</span></p>
-              <p className="text-xs text-white/50 mt-6">Voltando ao início em instantes…</p>
+              <p className="text-xs text-white/50 mt-4">Voltando ao início em instantes…</p>
+              <Button size="lg" onClick={() => setPhase("matricula")} className="w-full h-14 text-lg mt-4">
+                Próximo colaborador
+              </Button>
             </Card>
           </div>
         )}
