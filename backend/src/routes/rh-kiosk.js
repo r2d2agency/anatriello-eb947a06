@@ -147,7 +147,7 @@ router.get('/enrollments', async (req, res) => {
     if (!orgId) return res.status(400).json({ error: 'Organização não identificada' });
 
     const r = await query(
-      `SELECT id, full_name, photo_url, face_descriptor, facial_required
+      `SELECT id, full_name, photo_url, registration_number, face_descriptor, facial_required
        FROM employees
        WHERE organization_id = $1
          AND COALESCE(NULLIF(TRIM(status::text), ''), 'ativo') NOT IN ('desligado','inativo','inactive','terminated','demitido')
@@ -169,6 +169,7 @@ router.get('/enrollments', async (req, res) => {
           id: row.id,
           full_name: row.full_name,
           photo_url: row.photo_url || null,
+          registration_number: row.registration_number || null,
           facial_required: row.facial_required === true,
           descriptor: desc.map((n) => Number(n)).filter((n) => Number.isFinite(n)),
         };

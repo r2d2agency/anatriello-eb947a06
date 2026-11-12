@@ -14,6 +14,7 @@ interface Enrollment {
   id: string;
   full_name: string;
   photo_url: string | null;
+  registration_number?: string | null;
   descriptor: number[];
   facial_required?: boolean;
 }
@@ -767,7 +768,13 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
   // No quiosque a digitação da matrícula substitui a busca 1:N: o colaborador
   // diz quem é, e a câmera confirma que é ele — mais rápido e sem ambiguidade.
 
-  /** Busca colaboradores pelos últimos dígitos da matrícula. */
+  /**
+   * Busca colaboradores pelos últimos dígitos da matrícula.
+   *
+   * Offline-first: consulta a base local (IndexedDB) ANTES de ir à rede, então
+   * funciona mesmo sem internet. O backend agora devolve `registration_number`
+   * junto no /enrollments justamente para permitir esse filtro local.
+   */
   const lookupByMatricula = useCallback(async (digits: string) => {
     const clean = digits.replace(/\D/g, "").slice(0, MATRICULA_DIGITS);
     if (clean.length < 3) {
@@ -779,6 +786,33 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
     setLookupError(null);
     setLookupLoading(true);
     const seq = ++lookupSeqRef.current;
+    const toLookupEmployee = (emp: Enrollment): LookupEmployee => ({
+      id: emp.id,
+      full_name: emp.full_name,
+      registration_number: emp.registration_number ?? "",
+      photo_url: emp.photo_url,
+      has_face: emp.descriptor?.length > 0,
+      facial_required: emp.facial_required === true,
+    });
+    // 1) Tenta a base local primeiro (funciona offline)
+    try {
+      const cached = await loadEnrollmentsCache(Number.MAX_SAFE_INTEGER);
+      if (cached?.items?.length) {
+        const local = cached.items.filter((emp) =>
+          String(emp.registration_number ?? "").trim().endsWith(clean)
+        );
+        if (local.length > 0) {
+          if (lookupSeqRef.current !== seq) return;
+          setLookupResults(local.slice(0, 20).map(toLookupEmployee));
+          setLookupLoading(false);
+          setPhase("lookup");
+          return;
+        }
+      }
+    } catch {
+      // ignora e tenta a rede abaixo
+    }
+    // 2) Fallback: API (cobre caso a base local ainda não tenha a matrícula)
     try {
       const res = await api<{ items: LookupEmployee[] }>(`/api/rh/kiosk/lookup/${encodeURIComponent(clean)}`);
       if (lookupSeqRef.current !== seq) return;
@@ -788,7 +822,7 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
       console.error(e);
       if (lookupSeqRef.current !== seq) return;
       setLookupResults([]);
-      setLookupError("Não foi possível buscar. Tente novamente.");
+      setLookupError("Colaborador não encontrado. Verifique os dígitos.");
       setPhase("matricula");
     } finally {
       if (lookupSeqRef.current === seq) setLookupLoading(false);
@@ -832,9 +866,20 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
         attempts++;
         setAttemptCount(attempts);
         try {
-          const result = await detectFaceStable(videoRef.current, 5);
-          if (!result) {
+          // Etapa rápida: 1 quadro só para posicionar. A confirmação cara
+          // (média de 5 quadros) roda UMA vez, só quando o rosto já apareceu.
+          const quick = await detectFace(videoRef.current);
+          if (!quick) {
             if (attempts >= MAX_ATTEMPTS_NO_FACE) { setPhase("not_found"); stopCamera(); return; }
+            setStatusMsg("Posicione o rosto no centro…");
+            detectLoopRef.current = window.setTimeout(() => void verify(), RETRY_DELAY_MS);
+            return;
+          }
+          setLandmarks(quick.landmarks);
+          setStatusMsg("Confirmando…");
+          const result = await detectFaceStable(videoRef.current, 3);
+          if (!result) {
+            if (attempts >= MAX_ATTEMPTS_FACE_FOUND) { setPhase("not_found"); stopCamera(); return; }
             setStatusMsg("Posicione o rosto no centro…");
             detectLoopRef.current = window.setTimeout(() => void verify(), RETRY_DELAY_MS);
             return;
@@ -958,8 +1003,8 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
               <p className="text-white/60 text-sm mb-6 text-center">
                 Informe os últimos {MATRICULA_DIGITS} dígitos do seu número de registro.
               </p>
-              <div className="mb-4">
-                <div className="text-center text-4xl font-mono tracking-[0.3em] bg-black border border-orange-500/60 text-orange-400 rounded-xl py-4 mb-4 min-h-[4.5rem] flex items-center justify-center">
+              <div className="mb-3">
+                <div className="text-center text-3xl font-mono tracking-[0.3em] bg-black border border-orange-500/60 text-orange-400 rounded-xl py-3 mb-3 min-h-[3.5rem] flex items-center justify-center">
                   {matricula.padEnd(MATRICULA_DIGITS, "•")}
                 </div>
                 {lookupError && (
@@ -968,12 +1013,12 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
                   </p>
                 )}
               </div>
-              <div className="grid grid-cols-3 gap-2 mb-4">
+              <div className="grid grid-cols-3 gap-2 mb-3">
                 {["1","2","3","4","5","6","7","8","9"].map((d) => (
                   <Button
                     key={d}
                     variant="outline"
-                    className="h-14 text-2xl font-mono"
+                    className="h-11 text-xl font-mono"
                     onClick={() => {
                       if (matricula.length < MATRICULA_DIGITS) {
                         const next = matricula + d;
@@ -990,7 +1035,7 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
                 ))}
                 <Button
                   variant="outline"
-                  className="h-14 text-xl"
+                  className="h-11 text-lg"
                   onClick={() => setMatricula((m) => m.slice(0, -1))}
                   disabled={!matricula}
                 >
@@ -998,7 +1043,7 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
                 </Button>
                 <Button
                   variant="outline"
-                  className="h-14 text-2xl font-mono"
+                  className="h-11 text-xl font-mono"
                   onClick={() => {
                     if (matricula.length < MATRICULA_DIGITS) {
                       const next = matricula + "0";
@@ -1014,7 +1059,7 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
                 </Button>
                 <Button
                   variant="outline"
-                  className="h-14 text-xl"
+                  className="h-11 text-lg"
                   onClick={() => setPhase("idle")}
                 >
                   <ArrowLeft className="h-5 w-5" />
