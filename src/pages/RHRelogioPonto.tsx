@@ -265,6 +265,21 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
     releaseStream();
   }, [keepAlive, releaseStream]);
 
+  // Volta para a tela de matrícula LIMPA: sem dígitos, sem resultados/erros da
+  // pessoa anterior e sem confirmação. Usado pelo botão "Próximo colaborador"
+  // e pelo retorno automático após o sucesso.
+  const resetToMatricula = useCallback(() => {
+    setMatricula("");
+    setLookupResults([]);
+    setLookupError(null);
+    setLookupLoading(false);
+    setVerifyTarget(null);
+    setMatched(null);
+    setConfirmation(null);
+    setNotFoundInfo(null);
+    setPhase("matricula");
+  }, []);
+
   useEffect(() => () => releaseStream(), [releaseStream]);
 
   // Detecta orientação do tablet
@@ -662,7 +677,7 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
         });
         setPhase("success");
         toast({ title: "Ponto registrado offline", description: "Será enviado automaticamente quando a conexão voltar." });
-        setTimeout(() => setPhase("matricula"), 4000);
+        setTimeout(() => resetToMatricula(), 4000);
         return;
       }
 
@@ -692,7 +707,7 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
         time: new Date(r.punched_at).toLocaleTimeString("pt-BR", { timeZone: "America/Sao_Paulo", hour: "2-digit", minute: "2-digit" }),
       });
       setPhase("success");
-      setTimeout(() => setPhase("matricula"), 5000);
+      setTimeout(() => resetToMatricula(), 5000);
     } catch (err: any) {
       // Tenta enfileirar se for erro de rede
       const isNetwork = !err?.response && (err?.message?.includes("Network") || err?.message?.includes("Failed") || err?.code === "ECONNABORTED" || err?.message === "TIMEOUT");
@@ -723,7 +738,7 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
           });
           setPhase("success");
           toast({ title: "Ponto registrado offline", description: "Será enviado automaticamente quando a conexão voltar." });
-          setTimeout(() => setPhase("matricula"), 4000);
+          setTimeout(() => resetToMatricula(), 4000);
           return;
         } catch {}
       }
@@ -762,7 +777,7 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
       }
       setPhase("matched");
     }
-  }, [matched, nextPunch, toast]);
+  }, [matched, nextPunch, resetToMatricula, toast]);
 
   // ===== Matrícula → busca → confirmação 1:1 =====
   // No quiosque a digitação da matrícula substitui a busca 1:N: o colaborador
@@ -1232,7 +1247,7 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
               <p className="text-xl mb-1">{confirmation.name}</p>
               <p className="text-white/70 mb-4">{confirmation.type} às <span className="font-mono font-semibold">{confirmation.time}</span></p>
               <p className="text-xs text-white/50 mt-4">Voltando ao início em instantes…</p>
-              <Button size="lg" onClick={() => setPhase("matricula")} className="w-full h-14 text-lg mt-4">
+              <Button size="lg" onClick={resetToMatricula} className="w-full h-14 text-lg mt-4">
                 Próximo colaborador
               </Button>
             </Card>
