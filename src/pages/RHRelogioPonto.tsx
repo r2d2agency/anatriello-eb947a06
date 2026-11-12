@@ -1185,12 +1185,7 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
               </div>
               <p className="text-sm uppercase tracking-widest text-white/70 mb-1">Olá</p>
               <h2 className="text-3xl font-bold mb-2 text-orange-400">{matched.employee.full_name}</h2>
-              <p className="text-white mb-6">
-                Confiança: <span className="font-semibold text-orange-400">{matched.score}%</span>
-                <span className="text-white/60 ml-2 text-sm">
-                  (distância {matched.distance.toFixed(3)})
-                </span>
-              </p>
+              <p className="text-white mb-6" />
 
               <div className="bg-orange-500/10 border border-orange-500/40 rounded-2xl p-6 mb-6">
                 <p className="text-sm text-white/80 mb-1">Próxima batida</p>
