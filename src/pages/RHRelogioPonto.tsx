@@ -893,8 +893,8 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
               descriptor: [],
               facial_required: employee.facial_required,
             },
-            score: 0,
-            distance: 0,
+            score: Math.round(scoreFromDistance(result.distance) * 100) / 100,
+            distance: result.distance,
             selfie: captureVideoFrame(videoRef.current),
             descriptor: result.descriptor,
           };
