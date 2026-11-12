@@ -186,7 +186,7 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
     ctx.restore();
   }, []);
 
-  const [pendingCount, setPendingCount] = useState(0);
+  const [phase, setPhase] = useState<Phase>("idle");
   const [enrollments, setEnrollments] = useState<Enrollment[]>([]);
   const [minConfidence, setMinConfidence] = useState(KIOSK_MATCH_THRESHOLD);
   const [matched, setMatched] = useState<Matched | null>(null);
