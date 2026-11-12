@@ -997,14 +997,14 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
         )}
 
         {phase === "matricula" && (
-          <div className="w-full max-w-md">
-            <Card className="bg-black/40 border-white/10 p-6">
-              <h2 className="text-2xl font-bold mb-2 text-center">Digite sua matrícula</h2>
-              <p className="text-white/60 text-sm mb-6 text-center">
+          <div className="w-full max-w-sm my-auto">
+            <Card className="bg-black/40 border-white/10 p-4">
+              <h2 className="text-xl font-bold mb-1 text-center text-white">Digite sua matrícula</h2>
+              <p className="text-white/60 text-xs mb-3 text-center">
                 Informe os últimos {MATRICULA_DIGITS} dígitos do seu número de registro.
               </p>
               <div className="mb-3">
-                <div className="text-center text-3xl font-mono tracking-[0.3em] bg-black border border-orange-500/60 text-orange-400 rounded-xl py-3 mb-3 min-h-[3.5rem] flex items-center justify-center">
+                <div className="text-center text-2xl font-mono tracking-[0.3em] bg-black border border-orange-500/60 text-orange-400 rounded-xl py-2 mb-3 min-h-[3rem] flex items-center justify-center">
                   {matricula.padEnd(MATRICULA_DIGITS, "•")}
                 </div>
                 {lookupError && (
@@ -1013,12 +1013,12 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
                   </p>
                 )}
               </div>
-              <div className="grid grid-cols-3 gap-2 mb-3">
+              <div className="grid grid-cols-3 gap-1.5 mb-3">
                 {["1","2","3","4","5","6","7","8","9"].map((d) => (
                   <Button
                     key={d}
                     variant="outline"
-                    className="h-11 text-xl font-mono"
+                    className="h-10 text-lg font-mono bg-white/5 border-white/20 text-white hover:bg-white/10 hover:text-white"
                     onClick={() => {
                       if (matricula.length < MATRICULA_DIGITS) {
                         const next = matricula + d;
@@ -1035,7 +1035,7 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
                 ))}
                 <Button
                   variant="outline"
-                  className="h-11 text-lg"
+                  className="h-10 text-base bg-white/5 border-white/20 text-white hover:bg-white/10 hover:text-white"
                   onClick={() => setMatricula((m) => m.slice(0, -1))}
                   disabled={!matricula}
                 >
@@ -1043,7 +1043,7 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
                 </Button>
                 <Button
                   variant="outline"
-                  className="h-11 text-xl font-mono"
+                  className="h-10 text-lg font-mono bg-white/5 border-white/20 text-white hover:bg-white/10 hover:text-white"
                   onClick={() => {
                     if (matricula.length < MATRICULA_DIGITS) {
                       const next = matricula + "0";
@@ -1059,7 +1059,7 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
                 </Button>
                 <Button
                   variant="outline"
-                  className="h-11 text-lg"
+                  className="h-10 text-base bg-white/5 border-white/20 text-white hover:bg-white/10 hover:text-white"
                   onClick={() => setPhase("idle")}
                 >
                   <ArrowLeft className="h-5 w-5" />
