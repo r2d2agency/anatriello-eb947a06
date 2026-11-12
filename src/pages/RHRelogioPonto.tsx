@@ -877,14 +877,14 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
           }
           setLandmarks(quick.landmarks);
           setStatusMsg("Confirmando…");
-          const result = await detectFaceStable(videoRef.current, 3);
-          if (!result) {
-            if (attempts >= MAX_ATTEMPTS_FACE_FOUND) { setPhase("not_found"); stopCamera(); return; }
-            setStatusMsg("Posicione o rosto no centro…");
-            detectLoopRef.current = window.setTimeout(() => void verify(), RETRY_DELAY_MS);
-            return;
-          }
+          // Usa o descritor do quadro já detectado (sem 2ª passada cara de
+          // detectFaceStable): a decisão 1:1 real é do servidor no POST /punch.
+          // Isso deixa a validação ~3-4x mais rápida no tablet fraco.
+          const result = quick;
           setLandmarks(result.landmarks);
+          // quick vem do /lookup: só diz QUEM é, não devolve vetor biométrico
+          // (risco de vazar biometria). A decisão 1:1 de verdade é do servidor no
+          // POST /punch. Aqui exibe a confiança do DETECTOR (SSD), não um match.
           const best: Matched = {
             employee: {
               id: employee.id,
@@ -893,18 +893,20 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
               descriptor: [],
               facial_required: employee.facial_required,
             },
-            score: Math.round(scoreFromDistance(result.distance) * 100) / 100,
-            distance: result.distance,
+            score: Math.round(quick.confidence * 100) / 100,
+            distance: NaN,
             selfie: captureVideoFrame(videoRef.current),
             descriptor: result.descriptor,
           };
           setMatched(best);
-          try {
-            const np = await api<{ next: string }>(`/api/rh/kiosk/next-punch/${employee.id}`);
-            setNextPunch(np.next || "entrada");
-          } catch { setNextPunch("entrada"); }
+          // Não bloqueia a tela na rede lenta: mostra o "matched" na hora e
+          // busca o próximo tipo em segundo plano. Offline, assume "entrada".
+          setNextPunch("entrada");
           setPhase("matched");
           stopCamera();
+          void api<{ next: string }>(`/api/rh/kiosk/next-punch/${employee.id}`)
+            .then((np) => { if (np?.next) setNextPunch(np.next); })
+            .catch(() => {});
         } catch (e) {
           console.error(e);
           detectLoopRef.current = window.setTimeout(() => void verify(), RETRY_DELAY_MS);
@@ -1187,7 +1189,9 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
               <h2 className="text-xl font-bold mb-1 text-orange-400">{matched.employee.full_name}</h2>
               <p className="text-white text-sm mb-4">
                 Confiança: <span className="font-semibold text-orange-400">{matched.score}%</span>
-                <span className="text-white/60 ml-1 text-xs">(dist {matched.distance.toFixed(3)})</span>
+                {Number.isFinite(matched.distance) && (
+                  <span className="text-white/60 ml-1 text-xs">(dist {matched.distance.toFixed(3)})</span>
+                )}
               </p>
 
               <div className="bg-orange-500/10 border border-orange-500/40 rounded-xl p-3 mb-4">
