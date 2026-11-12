@@ -1,37 +1,18 @@
 // Cache offline (IndexedDB) para enrollments do totem de ponto.
 // Permite consultar a base local ANTES de ir à rede (offline-first).
 
+import { openDb, STORES } from "./kiosk-db";
+
 const DB_NAME = "kiosk_ponto";
-const DB_VERSION = 1;
-const STORE = "enrollments";
-const META_STORE = "meta";
+const DB_VERSION = 2;
+const STORE = STORES.ENROLLMENTS;
+const META_STORE = STORES.META;
 
 export interface CachedEnrollments {
   items: any[];
   min_confidence?: number;
   savedAt: number;
   organization_id?: string;
-}
-
-function openDb(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    if (!("indexedDB" in window)) {
-      reject(new Error("indexedDB unavailable"));
-      return;
-    }
-    const req = indexedDB.open(DB_NAME, DB_VERSION);
-    req.onupgradeneeded = () => {
-      const db = req.result;
-      if (!db.objectStoreNames.contains(STORE)) {
-        db.createObjectStore(STORE, { keyPath: "id" });
-      }
-      if (!db.objectStoreNames.contains(META_STORE)) {
-        db.createObjectStore(META_STORE, { keyPath: "key" });
-      }
-    };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
 }
 
 export async function saveEnrollmentsCache(data: CachedEnrollments): Promise<void> {

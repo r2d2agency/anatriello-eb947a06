@@ -1,9 +1,10 @@
+import { openDb, STORES } from "./kiosk-db";
 // Fila offline de batidas do totem de ponto
 // Salva localmente quando sem internet e sincroniza quando voltar online
 
 const DB_NAME = "kiosk_ponto";
-const DB_VERSION = 1;
-const PUNCH_QUEUE_STORE = "punch_queue";
+const DB_VERSION = 2;
+const PUNCH_QUEUE_STORE = STORES.PUNCH_QUEUE;
 
 export interface QueuedPunch {
   id: string; // local id
@@ -18,30 +19,6 @@ export interface QueuedPunch {
   accuracy_meters?: number | null;
   created_at: number; // timestamp
   attempts: number;
-}
-
-function openDb(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    if (!("indexedDB" in window)) {
-      reject(new Error("indexedDB unavailable"));
-      return;
-    }
-    const req = indexedDB.open(DB_NAME, DB_VERSION);
-    req.onupgradeneeded = () => {
-      const db = req.result;
-      if (!db.objectStoreNames.contains("enrollments")) {
-        db.createObjectStore("enrollments", { keyPath: "id" });
-      }
-      if (!db.objectStoreNames.contains("meta")) {
-        db.createObjectStore("meta", { keyPath: "key" });
-      }
-      if (!db.objectStoreNames.contains(PUNCH_QUEUE_STORE)) {
-        db.createObjectStore(PUNCH_QUEUE_STORE, { keyPath: "id" });
-      }
-    };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
 }
 
 function generateId() {
