@@ -186,7 +186,7 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
     ctx.restore();
   }, []);
 
-  const [phase, setPhase] = useState<Phase>("idle");
+  const [pendingCount, setPendingCount] = useState(0);
   const [enrollments, setEnrollments] = useState<Enrollment[]>([]);
   const [minConfidence, setMinConfidence] = useState(KIOSK_MATCH_THRESHOLD);
   const [matched, setMatched] = useState<Matched | null>(null);
@@ -580,6 +580,7 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
   const syncOfflineQueue = useCallback(async () => {
     try {
       const queue = await getQueuedPunches();
+      setPendingCount(queue.length);
       if (!queue.length) return;
       for (const item of queue) {
         try {
@@ -599,6 +600,7 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
             },
           });
           await removeQueuedPunch(item.id);
+          setPendingCount((c) => Math.max(0, c - 1));
           toast({
             title: "Ponto sincronizado",
             description: `${r.employee_name || ""} - ${PUNCH_LABELS[r.punch_type] || r.punch_type}`.trim(),
@@ -615,7 +617,11 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
     syncOfflineQueue();
     const onOnline = () => syncOfflineQueue();
     window.addEventListener("online", onOnline);
-    return () => window.removeEventListener("online", onOnline);
+    const interval = window.setInterval(() => syncOfflineQueue(), 60000);
+    return () => {
+      window.removeEventListener("online", onOnline);
+      window.clearInterval(interval);
+    };
   }, [syncOfflineQueue]);
 
   const confirmPunch = useCallback(async () => {
@@ -886,6 +892,9 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
           </div>
         </div>
         <div className="text-right">
+          {pendingCount > 0 && (
+            <div className="text-xs text-amber-300 mb-1">⏳ {pendingCount} ponto(s) pendente(s)</div>
+          )}
           <div className="text-3xl font-mono tabular-nums font-bold tracking-tight">
             {clock.toLocaleTimeString("pt-BR", { timeZone: "America/Sao_Paulo", hour: "2-digit", minute: "2-digit", second: "2-digit" })}
           </div>
