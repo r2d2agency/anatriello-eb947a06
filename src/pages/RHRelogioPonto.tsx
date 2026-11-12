@@ -658,7 +658,9 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
         return;
       }
 
-      const r = await api<any>(`/api/rh/kiosk/punch`, {
+      // POST com timeout curto: se a internet estiver lenta, cai na fila em vez
+      // de travar a UI (offline-first).
+      const postPromise = api<any>(`/api/rh/kiosk/punch`, {
         method: "POST",
         body: {
           punch_type: nextPunch,
@@ -668,16 +670,14 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
           selfie_url: matched.selfie,
           employee_id: matched.employee.id,
           face_descriptor: matched.descriptor,
-          // Diagnóstico: o servidor recalcula a distância de qualquer forma e
-          // registra no log. Enviar a do tablet permite comparar as duas na
-          // mesma linha e ver se elas divergem. Não é usado na decisão.
-          // O campo tem que se chamar client_distance — o servidor lê esse
-          // nome (rh-kiosk.js); client_similarity era ignorado e o log ficava
-          // sem o número do quiosque.
           client_distance: matched.distance,
           client_score: matched.score,
         },
       });
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("TIMEOUT")), 7000)
+      );
+      const r = await Promise.race([postPromise, timeoutPromise]);
       setConfirmation({
         name: r.employee_name || matched.employee.full_name,
         type: PUNCH_LABELS[r.punch_type] || r.punch_type,
@@ -687,7 +687,7 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
       setTimeout(() => setPhase("matricula"), 5000);
     } catch (err: any) {
       // Tenta enfileirar se for erro de rede
-      const isNetwork = !err?.response && (err?.message?.includes("Network") || err?.message?.includes("Failed") || err?.code === "ECONNABORTED");
+      const isNetwork = !err?.response && (err?.message?.includes("Network") || err?.message?.includes("Failed") || err?.code === "ECONNABORTED" || err?.message === "TIMEOUT");
       if (isNetwork && matched) {
         try {
           let coords: GeolocationCoordinates | null = null;
