@@ -33,6 +33,14 @@ export default defineConfig(() => ({
             urlPattern: ({ url }) => url.pathname === "/version.json",
             handler: "NetworkOnly",
           },
+          {
+            urlPattern: /cdn\.jsdelivr\.net\/npm\/@vladmandic\/face-api\/model\//,
+            handler: "CacheFirst",
+            options: {
+              cacheName: "face-models",
+              expiration: { maxEntries: 50, maxAgeSeconds: 60 * 60 * 24 * 365 },
+            },
+          },
         ],
       },
       manifest: {
