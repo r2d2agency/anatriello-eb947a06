@@ -204,7 +204,6 @@ import SmartRouteDashboard from "./pages/smartroute/SmartRouteDashboard";
 import SmartRouteMapa from "./pages/smartroute/SmartRouteMapa";
 import SmartRouteRotas from "./pages/smartroute/SmartRouteRotas";
 import SmartRouteImportarRomaneio from "./pages/smartroute/SmartRouteImportarRomaneio";
-import SmartRoutePedidos from "./pages/smartroute/SmartRoutePedidos";
 import SmartRouteRotasMontadas from "./pages/smartroute/SmartRouteRotasMontadas";
 import SmartRouteRotaDoDia from "./pages/smartroute/SmartRouteRotaDoDia";
 import SmartRouteSimulador from "./pages/smartroute/SmartRouteSimulador";
@@ -522,9 +521,6 @@ const App = () => (
             <Route path="/smartroute/rotas" element={<ProtectedRoute><SmartRouteRotas /></ProtectedRoute>} />
             <Route path="/smartroute/importar-romaneio" element={<ProtectedRoute><SmartRouteImportarRomaneio /></ProtectedRoute>} />
             <Route path="/smartroute/rotas-montadas" element={<ProtectedRoute><SmartRouteRotasMontadas /></ProtectedRoute>} />
-            <Route path="/smartroute/rota-do-dia" element={<ProtectedRoute><SmartRouteRotaDoDia /></ProtectedRoute>} />
-            <Route path="/smartroute/simulador" element={<ProtectedRoute><SmartRouteSimulador /></ProtectedRoute>} />
-            <Route path="/smartroute/pedidos" element={<ProtectedRoute><SmartRoutePedidos /></ProtectedRoute>} />
             <Route path="/smartroute/pdvs" element={<ProtectedRoute><SmartRoutePDVs /></ProtectedRoute>} />
             <Route path="/smartroute/frota" element={<ProtectedRoute><SmartRouteFrota /></ProtectedRoute>} />
             <Route path="/smartroute/cds" element={<ProtectedRoute><SmartRouteCDs /></ProtectedRoute>} />

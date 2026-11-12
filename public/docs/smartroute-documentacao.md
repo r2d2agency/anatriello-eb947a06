@@ -1,16 +1,16 @@
 # SmartRoute AI — Documentação Completa
 
-Módulo de logística e roteirização com **otimização por IA**. Este documento descreve o fluxo oficial: vendedores lançam solicitações → IA organiza a sequência ideal por rota → supervisor publica → entregador recebe no app.
+Módulo de logística e roteirização com **otimização por IA**. O fluxo oficial parte da **importação do romaneio** (PDF): o sistema cria a rota e as paradas/pedidos automaticamente → IA organiza a sequência ideal → supervisor publica → entregador recebe no app.
 
 ---
 
 ## 1. Visão geral do fluxo
 
 ```text
-Vendedor lança pedido → escolhe uma ROTA (contêiner) + DATA + PDV
+Importar Romaneio (PDF) → parse + revisão das paradas
         │
         ▼
-Pedidos acumulam ao longo do dia na rota escolhida (status: aberta)
+Commit da importação: cria/atualiza rota, PDVs (quando necessário) e pedidos/paradas
         │
         ▼
 20h · Cron da IA otimiza a "Rota do Dia" para AMANHÃ (D+1):
@@ -33,9 +33,10 @@ Entregador executa: navegação · check-in · checklist do PDV · POD
 
 | Papel | O que faz |
 |---|---|
-| **Vendedor** | Lança pedidos em qualquer rota. Vê todas as rotas (sem restrição de dono). Cada pedido é uma **solicitação de entrega** — o espelho da NF-e virá em fase futura. |
-| **Supervisor** | Cadastra rotas e PDVs (com regras), roda a IA manualmente quando quiser, troca/adiciona entregadores, publica ou reabre a rota do dia. |
+| **Operador/Supervisor** | Importa o romaneio, revisa o reconhecimento de PDVs/paradas e confirma a importação. Cadastra rotas e PDVs (com regras), roda a IA manualmente quando quiser, troca/adiciona entregadores, publica ou reabre a rota do dia. |
 | **Entregador** | Recebe no app apenas rotas **publicadas** em que ele é o motorista atribuído. |
+
+> **Observação:** o lançamento manual de pedidos foi desabilitado no painel. A criação de pedidos/paradas ocorre pela importação do romaneio.
 
 ---
 
@@ -234,13 +235,13 @@ onde window_rank: manha=1, tarde=2, noite=3, qualquer=4
 ## 10. Perguntas frequentes
 
 **Preciso pré-cadastrar PDVs em cada rota?**
-Não. Basta ter o cadastro do PDV. O vendedor associa PDV + rota + data no momento do pedido.
+Não. Basta ter o cadastro do PDV. No romaneio, o sistema tenta reconhecer/conectar o PDV pelo código ou nome; PDVs novos podem ser criados a partir dos dados da importação.
 
-**E se lançar um pedido depois das 20h?**
-A IA já rodou. Peça ao supervisor para clicar **Reotimizar** — leva alguns segundos.
+**E se precisar incluir uma entrega depois que a IA das 20h já rodou?**
+Importe/ajuste o romaneio correspondente e peça ao supervisor para clicar **Reotimizar** na Rota do Dia — leva alguns segundos.
 
-**PDV recebe só nas segundas e quartas. E se lançarem para uma terça?**
-O pedido é salvo, mas a IA o marca como **bloqueado** (não entra na sequência do dia). O aviso já aparece na tela do vendedor no momento do lançamento.
+**PDV recebe só nas segundas e quartas. E se o romaneio trouxer entrega para uma terça?**
+O pedido/parada é registrado, mas a IA o marca como **bloqueado** para aquela data (não entra na sequência do dia), respeitando os dias permitidos do PDV.
 
 **Um entregador pode fazer duas rotas no mesmo dia?**
 Sim — basta estar na lista `driver_ids` das duas rotas do dia. Ambas aparecem no app.
@@ -249,8 +250,8 @@ Sim — basta estar na lista `driver_ids` das duas rotas do dia. Ambas aparecem 
 Sim. O supervisor adiciona o segundo motorista antes de publicar (útil em dias de volume alto).
 
 **Como funciona a auditoria?**
-Toda ação (otimizar, publicar, reabrir, trocar entregador, editar pedido) registra usuário, timestamp e (quando disponível) IP. Disponível em **Monitoramento → Replay**.
+Toda ação (otimizar, publicar, reabrir, trocar entregador, importação/ajustes da rota) registra usuário, timestamp e (quando disponível) IP. Disponível em **Monitoramento → Replay**.
 
 ---
 
-_Última atualização: fase Rotas Dinâmicas + Otimização IA Noturna (regras no PDV, cron 20h, ciclo otimizada→publicada)._
+_Última atualização: fluxo baseado em importação de romaneio (módulo de lançamento manual de pedidos desabilitado)._
