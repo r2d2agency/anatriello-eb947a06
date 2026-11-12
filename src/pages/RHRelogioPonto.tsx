@@ -227,11 +227,6 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
   const [verifyTarget, setVerifyTarget] = useState<LookupEmployee | null>(null);
   const lookupSeqRef = useRef(0);
   const lookupTimerRef = useRef<number | null>(null);
-  // Vetor cadastrado do colaborador em verificação (base local IndexedDB) +
-  // limiar vigente. Refs porque o loop `verify` é async e o state pode estar
-  // defasado quando a comparação roda.
-  const enrolledRef = useRef<number[] | null>(null);
-  const thresholdRef = useRef<number>(KIOSK_MATCH_THRESHOLD);
 
   // Redesenha os pontos quando a câmera ou o rosto mudam
   useEffect(() => {
@@ -837,44 +832,17 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
   /**
    * Abre a câmera e confirma 1:1 que o rosto é do colaborador escolhido.
    *
-   * O /lookup não devolve vetor biométrico, mas a base local de enrollments
-   * (/enrollments, salva no IndexedDB) já tem o descritor de cada um. Então a
-   * comparação 1:1 pode acontecer NO TABLET, sem rede: distância euclidiana do
-   * descritor capturado contra o cadastrado, na mesma régua do servidor
-   * (maxDistanceForScore). Offline, o ponto é enfileirado e o servidor
-   * revalida no sync — mesma garantia, sem depender da internet na hora.
+   * O descritor cadastrado NÃO vem na resposta do /lookup (o endpoint não
+   * devolve vetor biométrico para o navegador). A comparação é feita no
+   * servidor no momento do POST /punch — aqui basta capturar o descritor e
+   * guardá-lo no `matched` para enviar junto.
    */
   const startVerify = useCallback(async (employee: LookupEmployee) => {
     setVerifyTarget(employee);
-    enrolledRef.current = null;
-    thresholdRef.current = minConfidence;
     setPhase("loading");
     setStatusMsg("Carregando reconhecimento facial…");
     try {
       await withTimeout(loadFaceModels(), 20000, "O download dos modelos demorou demais. Verifique a internet do tablet.");
-      // Busca o vetor cadastrado na base LOCAL (funciona offline). Se o cache
-      // ainda não tem esse colaborador, tenta a rede; se nem isso der, segue
-      // sem validação local (o servidor decide no POST /punch).
-      let enrolled: number[] | null = null;
-      let threshold = minConfidence;
-      try {
-        let cached = await loadEnrollmentsCache(Number.MAX_SAFE_INTEGER);
-        let found = cached?.items?.find((e: any) => String(e.id) === String(employee.id));
-        if (!found) {
-          // Cache desatualizado (colaborador novo?): puxa do servidor 1x.
-          const fresh = await loadEnrollments();
-          found = fresh?.find((e: any) => String(e.id) === String(employee.id));
-          cached = await loadEnrollmentsCache(Number.MAX_SAFE_INTEGER);
-        }
-        if (found && Array.isArray((found as any).descriptor) && (found as any).descriptor.length > 0) {
-          enrolled = (found as any).descriptor.map((n: any) => Number(n)).filter((n: number) => Number.isFinite(n));
-          if (!enrolled.length) enrolled = null;
-        }
-        const cfg = Number(cached?.min_confidence);
-        if (Number.isFinite(cfg)) threshold = Math.max(KIOSK_MATCH_THRESHOLD, cfg);
-      } catch { /* segue sem validação local */ }
-      enrolledRef.current = enrolled;
-      thresholdRef.current = threshold;
       setStatusMsg("Abrindo câmera…");
       let stream = streamRef.current;
       const alive = stream?.getVideoTracks().some((t) => t.readyState === "live");
@@ -909,54 +877,28 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
           }
           setLandmarks(quick.landmarks);
           setStatusMsg("Confirmando…");
-          // Validação 1:1 LOCAL contra a base do IndexedDB (funciona offline):
-          // compara o descritor capturado com o cadastrado, na mesma régua do
-          // servidor (maxDistanceForScore). Sem rede, o ponto vai pra fila e o
-          // servidor revalida no sync — mesma garantia, sem travar na hora.
-          const enrolledDesc = enrolledRef.current;
-          if (enrolledDesc?.length) {
-            const d = euclideanDistance(quick.descriptor, enrolledDesc);
-            const maxD = maxDistanceForScore(thresholdRef.current);
-            const sc = Math.round(scoreFromDistance(d) * 100) / 100;
-            if (d > maxD) {
-              // Rosto não é o do cadastro: mostra diagnóstico e volta.
-              setNotFoundInfo({ dbSize: 1, bestDistance: d });
-              setPhase("not_found");
-              stopCamera();
-              return;
-            }
-            const best: Matched = {
-              employee: {
-                id: employee.id,
-                full_name: employee.full_name,
-                photo_url: employee.photo_url,
-                descriptor: [],
-                facial_required: employee.facial_required,
-              },
-              score: sc,
-              distance: d,
-              selfie: captureVideoFrame(videoRef.current),
-              descriptor: quick.descriptor,
-            };
-            setMatched(best);
-          } else {
-            // Sem vetor local (cache vazio/sem rede): captura e deixa o servidor
-            // decidir no POST /punch. Exibe a confiança do detector.
-            const best: Matched = {
-              employee: {
-                id: employee.id,
-                full_name: employee.full_name,
-                photo_url: employee.photo_url,
-                descriptor: [],
-                facial_required: employee.facial_required,
-              },
-              score: Math.round(quick.confidence * 100) / 100,
-              distance: NaN,
-              selfie: captureVideoFrame(videoRef.current),
-              descriptor: quick.descriptor,
-            };
-            setMatched(best);
-          }
+          // Usa o descritor do quadro já detectado (sem 2ª passada cara de
+          // detectFaceStable): a decisão 1:1 real é do servidor no POST /punch.
+          // Isso deixa a validação ~3-4x mais rápida no tablet fraco.
+          const result = quick;
+          setLandmarks(result.landmarks);
+          // quick vem do /lookup: só diz QUEM é, não devolve vetor biométrico
+          // (risco de vazar biometria). A decisão 1:1 de verdade é do servidor no
+          // POST /punch. Aqui exibe a confiança do DETECTOR (SSD), não um match.
+          const best: Matched = {
+            employee: {
+              id: employee.id,
+              full_name: employee.full_name,
+              photo_url: employee.photo_url,
+              descriptor: [],
+              facial_required: employee.facial_required,
+            },
+            score: Math.round(quick.confidence * 100) / 100,
+            distance: NaN,
+            selfie: captureVideoFrame(videoRef.current),
+            descriptor: result.descriptor,
+          };
+          setMatched(best);
           // Não bloqueia a tela na rede lenta: mostra o "matched" na hora e
           // busca o próximo tipo em segundo plano. Offline, assume "entrada".
           setNextPunch("entrada");
