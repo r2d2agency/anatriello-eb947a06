@@ -916,9 +916,7 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
           const enrolledDesc = enrolledRef.current;
           if (enrolledDesc?.length) {
             const d = euclideanDistance(quick.descriptor, enrolledDesc);
-            // 1 quadro só é mais ruidoso que a média de 5 do fluxo antigo; aplica
-            // a mesma folga do STABLE_CONFIRM_SLACK para não rejeitar o dono.
-            const maxD = maxDistanceForScore(thresholdRef.current) * STABLE_CONFIRM_SLACK;
+            const maxD = maxDistanceForScore(thresholdRef.current);
             const sc = Math.round(scoreFromDistance(d) * 100) / 100;
             if (d > maxD) {
               // Rosto não é o do cadastro: mostra diagnóstico e volta.
