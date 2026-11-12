@@ -900,7 +900,7 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
         try {
           // Etapa rápida: 1 quadro só para posicionar. A confirmação cara
           // (média de 5 quadros) roda UMA vez, só quando o rosto já apareceu.
-          const quick = await detectFaceStable(videoRef.current, 2);
+          const quick = await detectFace(videoRef.current);
           if (!quick) {
             if (attempts >= MAX_ATTEMPTS_NO_FACE) { setPhase("not_found"); stopCamera(); return; }
             setStatusMsg("Posicione o rosto no centro…");
