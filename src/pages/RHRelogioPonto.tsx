@@ -799,7 +799,7 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
       const cached = await loadEnrollmentsCache(Number.MAX_SAFE_INTEGER);
       if (cached?.items?.length) {
         const local = cached.items.filter((emp) =>
-          String(emp.registration_number ?? "").replace(/\D/g, "").endsWith(clean)
+          String(emp.registration_number ?? "").trim().endsWith(clean)
         );
         if (local.length > 0) {
           if (lookupSeqRef.current !== seq) return;
@@ -877,14 +877,14 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
           }
           setLandmarks(quick.landmarks);
           setStatusMsg("Confirmando…");
-          // Usa o descritor do quadro já detectado (sem 2ª passada cara de
-          // detectFaceStable): a decisão 1:1 real é do servidor no POST /punch.
-          // Isso deixa a validação ~3-4x mais rápida no tablet fraco.
-          const result = quick;
+          const result = await detectFaceStable(videoRef.current, 3);
+          if (!result) {
+            if (attempts >= MAX_ATTEMPTS_FACE_FOUND) { setPhase("not_found"); stopCamera(); return; }
+            setStatusMsg("Posicione o rosto no centro…");
+            detectLoopRef.current = window.setTimeout(() => void verify(), RETRY_DELAY_MS);
+            return;
+          }
           setLandmarks(result.landmarks);
-          // quick vem do /lookup: só diz QUEM é, não devolve vetor biométrico
-          // (risco de vazar biometria). A decisão 1:1 de verdade é do servidor no
-          // POST /punch. Aqui exibe a confiança do DETECTOR (SSD), não um match.
           const best: Matched = {
             employee: {
               id: employee.id,
@@ -893,20 +893,18 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
               descriptor: [],
               facial_required: employee.facial_required,
             },
-            score: Math.round(quick.confidence * 100) / 100,
-            distance: NaN,
+            score: 0,
+            distance: 0,
             selfie: captureVideoFrame(videoRef.current),
             descriptor: result.descriptor,
           };
           setMatched(best);
-          // Não bloqueia a tela na rede lenta: mostra o "matched" na hora e
-          // busca o próximo tipo em segundo plano. Offline, assume "entrada".
-          setNextPunch("entrada");
+          try {
+            const np = await api<{ next: string }>(`/api/rh/kiosk/next-punch/${employee.id}`);
+            setNextPunch(np.next || "entrada");
+          } catch { setNextPunch("entrada"); }
           setPhase("matched");
           stopCamera();
-          void api<{ next: string }>(`/api/rh/kiosk/next-punch/${employee.id}`)
-            .then((np) => { if (np?.next) setNextPunch(np.next); })
-            .catch(() => {});
         } catch (e) {
           console.error(e);
           detectLoopRef.current = window.setTimeout(() => void verify(), RETRY_DELAY_MS);
@@ -1175,45 +1173,45 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
         )}
 
         {phase === "matched" && matched && (
-          <div className="w-full max-w-sm">
-            <Card className="bg-black/90 backdrop-blur border-orange-500/60 p-5 text-center">
-              <div className="flex justify-center mb-4">
-                <Avatar className="h-20 w-20 border-3 border-orange-400 shadow-2xl">
+          <div className="w-full max-w-lg">
+            <Card className="bg-black/90 backdrop-blur border-orange-500/60 p-8 text-center">
+              <div className="flex justify-center mb-6">
+                <Avatar className="h-32 w-32 border-4 border-orange-400 shadow-2xl">
                   <AvatarImage src={matched.selfie || matched.employee.photo_url || undefined} />
-                  <AvatarFallback className="text-xl bg-orange-500/20 text-orange-300">
+                  <AvatarFallback className="text-3xl bg-orange-500/20 text-orange-300">
                     {matched.employee.full_name.split(" ").map((n) => n[0]).slice(0, 2).join("")}
                   </AvatarFallback>
                 </Avatar>
               </div>
-              <p className="text-xs uppercase tracking-widest text-white/70 mb-1">Olá</p>
-              <h2 className="text-xl font-bold mb-1 text-orange-400">{matched.employee.full_name}</h2>
-              <p className="text-white text-sm mb-4">
+              <p className="text-sm uppercase tracking-widest text-white/70 mb-1">Olá</p>
+              <h2 className="text-3xl font-bold mb-2 text-orange-400">{matched.employee.full_name}</h2>
+              <p className="text-white mb-6">
                 Confiança: <span className="font-semibold text-orange-400">{matched.score}%</span>
-                {Number.isFinite(matched.distance) && (
-                  <span className="text-white/60 ml-1 text-xs">(dist {matched.distance.toFixed(3)})</span>
-                )}
+                <span className="text-white/60 ml-2 text-sm">
+                  (distância {matched.distance.toFixed(3)})
+                </span>
               </p>
 
-              <div className="bg-orange-500/10 border border-orange-500/40 rounded-xl p-3 mb-4">
-                <p className="text-xs text-white/80 mb-0.5">Próxima batida</p>
-                <p className="text-xl font-bold text-orange-400">{PUNCH_LABELS[nextPunch] || nextPunch}</p>
+              <div className="bg-orange-500/10 border border-orange-500/40 rounded-2xl p-6 mb-6">
+                <p className="text-sm text-white/80 mb-1">Próxima batida</p>
+                <p className="text-3xl font-bold text-orange-400">{PUNCH_LABELS[nextPunch] || nextPunch}</p>
               </div>
 
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-2 gap-3">
                 <Button
                   variant="outline"
                   size="lg"
                   onClick={cancel}
-                  className="h-12 text-base bg-black border-white/40 text-white hover:bg-white/10"
+                  className="h-16 text-lg bg-black border-white/40 text-white hover:bg-white/10"
                 >
-                  <XCircle className="h-4 w-4 mr-1" /> Não sou eu
+                  <XCircle className="h-5 w-5 mr-2" /> Não sou eu
                 </Button>
                 <Button
                   size="lg"
                   onClick={confirmPunch}
-                  className="h-12 text-base bg-emerald-600 hover:bg-emerald-700 text-white"
+                  className="h-16 text-lg bg-emerald-600 hover:bg-emerald-700 text-white"
                 >
-                  <CheckCircle2 className="h-4 w-4 mr-1" /> Confirmar
+                  <CheckCircle2 className="h-5 w-5 mr-2" /> Confirmar
                 </Button>
               </div>
             </Card>
@@ -1228,18 +1226,18 @@ export default function RHRelogioPonto({ kiosk = false }: { kiosk?: boolean } = 
         )}
 
         {phase === "success" && confirmation && (
-          <div className="w-full max-w-sm">
-            <Card className="bg-emerald-500/10 backdrop-blur border-emerald-500/30 p-6 text-center">
-              <div className="flex justify-center mb-4">
-                <div className="h-16 w-16 rounded-full bg-emerald-500 flex items-center justify-center">
-                  <CheckCircle2 className="h-10 w-10 text-white" />
+          <div className="w-full max-w-md">
+            <Card className="bg-emerald-500/10 backdrop-blur border-emerald-500/30 p-10 text-center">
+              <div className="flex justify-center mb-6">
+                <div className="h-24 w-24 rounded-full bg-emerald-500 flex items-center justify-center">
+                  <CheckCircle2 className="h-14 w-14 text-white" />
                 </div>
               </div>
-              <h2 className="text-xl font-bold mb-1 text-emerald-300">Ponto registrado!</h2>
-              <p className="text-base mb-1">{confirmation.name}</p>
-              <p className="text-white/70 text-sm mb-3">{confirmation.type} às <span className="font-mono font-semibold">{confirmation.time}</span></p>
-              <p className="text-xs text-white/50 mt-2">Voltando ao início em instantes…</p>
-              <Button size="lg" onClick={() => setPhase("matricula")} className="w-full h-11 text-base mt-3">
+              <h2 className="text-3xl font-bold mb-2 text-emerald-300">Ponto registrado!</h2>
+              <p className="text-xl mb-1">{confirmation.name}</p>
+              <p className="text-white/70 mb-4">{confirmation.type} às <span className="font-mono font-semibold">{confirmation.time}</span></p>
+              <p className="text-xs text-white/50 mt-4">Voltando ao início em instantes…</p>
+              <Button size="lg" onClick={() => setPhase("matricula")} className="w-full h-14 text-lg mt-4">
                 Próximo colaborador
               </Button>
             </Card>
