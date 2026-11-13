@@ -1153,4 +1153,84 @@ router.patch('/:id([0-9a-fA-F-]{36})/members/:userId([0-9a-fA-F-]{36})/template'
   }
 });
 
+// Get app links (Central de Apps) - any org member
+router.get('/:id([0-9a-fA-F-]{36})/app-links', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const memberCheck = await query(
+      `SELECT role FROM organization_members WHERE organization_id = $1 AND user_id = $2`,
+      [id, req.userId]
+    );
+    if (memberCheck.rows.length === 0) return res.status(403).json({ error: 'Acesso negado' });
+
+    try {
+      const result = await query(
+        `SELECT integration_settings->'app_links' as app_links FROM organizations WHERE id = $1`,
+        [id]
+      );
+      const appLinks = result.rows[0]?.app_links || null;
+      return res.json({ app_links: appLinks });
+    } catch (colError) {
+      if (/integration_settings/i.test(String(colError?.message || ''))) {
+        try {
+          await query(`ALTER TABLE organizations ADD COLUMN IF NOT EXISTS integration_settings jsonb DEFAULT '{}'`);
+        } catch (_) {}
+        return res.json({ app_links: null });
+      }
+      throw colError;
+    }
+  } catch (error) {
+    console.error('Get app links error:', error);
+    res.status(500).json({ error: 'Erro ao buscar links dos apps' });
+  }
+});
+
+// Update app links (Central de Apps) - admin/owner only
+router.put('/:id([0-9a-fA-F-]{36})/app-links', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { app_links } = req.body || {};
+
+    const memberCheck = await query(
+      `SELECT role FROM organization_members WHERE organization_id = $1 AND user_id = $2 AND role IN ('owner', 'admin')`,
+      [id, req.userId]
+    );
+    if (memberCheck.rows.length === 0) return res.status(403).json({ error: 'Apenas admins podem salvar os links' });
+
+    if (!app_links || typeof app_links !== 'object' || Array.isArray(app_links)) {
+      return res.status(400).json({ error: 'Links inválidos' });
+    }
+
+    const sanitized = {};
+    for (const [key, value] of Object.entries(app_links)) {
+      if (typeof value === 'string') {
+        const v = value.trim();
+        if (v) sanitized[String(key).slice(0, 64)] = v.slice(0, 2048);
+      }
+    }
+
+    try {
+      await query(
+        `UPDATE organizations SET integration_settings = COALESCE(integration_settings, '{}'::jsonb) || jsonb_build_object('app_links', $1::jsonb) WHERE id = $2`,
+        [JSON.stringify(sanitized), id]
+      );
+    } catch (colError) {
+      if (/integration_settings/i.test(String(colError?.message || ''))) {
+        await query(`ALTER TABLE organizations ADD COLUMN IF NOT EXISTS integration_settings jsonb DEFAULT '{}'`);
+        await query(
+          `UPDATE organizations SET integration_settings = COALESCE(integration_settings, '{}'::jsonb) || jsonb_build_object('app_links', $1::jsonb) WHERE id = $2`,
+          [JSON.stringify(sanitized), id]
+        );
+      } else {
+        throw colError;
+      }
+    }
+
+    res.json({ success: true, app_links: sanitized });
+  } catch (error) {
+    console.error('Update app links error:', error);
+    res.status(500).json({ error: 'Erro ao salvar links dos apps' });
+  }
+});
+
 export default router;
